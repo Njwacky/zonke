@@ -1,0 +1,19 @@
+{
+    "name": "Zonke – Universal Tactical Paper Soldier",
+    "short_name": "ZONKE",
+    "description": "9-Row 2D Tactical Paper-Flicking Duel & Esports Game (First-Strike Combat Elimination 💀🐐)",
+    "start_url": "index.html",
+    "display": "standalone",
+    "orientation": "portrait-primary",
+    "background_color": "#1a1a1a",
+    "theme_color": "#fdf6e3",
+    "categories": ["games", "sports", "entertainment"],
+    "icons": [
+        {
+            "src": "icon.svg",
+            "sizes": "512x512 192x192 64x64",
+            "type": "image/svg+xml",
+            "purpose": "any maskable"
+        }
+    ]
+}

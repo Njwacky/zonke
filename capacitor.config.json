@@ -1,0 +1,20 @@
+{
+  "appId": "com.zonke.kasiwars",
+  "appName": "Zonke: The Kasi Paper Soldier",
+  "webDir": ".",
+  "bundledWebRuntime": false,
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "launchAutoHide": true,
+      "backgroundColor": "#1a1a1a",
+      "showSpinner": false
+    },
+    "Haptics": {
+      "enabled": true
+    }
+  },
+  "server": {
+    "cleartext": true
+  }
+}
