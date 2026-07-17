@@ -1793,6 +1793,197 @@ body.theme-wood .menu-section-title {
     box-shadow: 1.5px 1.5px 0px #1a1a1a !important;
 }
 
+
+/* Animated Directional Wind Header (`Replace BATTLEFIELD TARGETS with wind & anime of direction`) */
+.zone-header.wind-header {
+    height: 26px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0 6px !important;
+    background: #1a1a1a !important;
+    color: #00e5ff !important;
+    border-bottom: 2px solid #00e5ff !important;
+    box-shadow: 0 2px 8px rgba(0, 229, 255, 0.3) !important;
+    overflow: hidden;
+    position: relative;
+    transition: all 0.3s ease;
+    z-index: 10;
+}
+
+.wind-text {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    z-index: 5;
+    text-shadow: 0 0 6px rgba(0, 229, 255, 0.9);
+    text-align: center;
+    flex-grow: 1;
+}
+
+.wind-arrows {
+    font-size: 13px !important;
+    font-weight: 900 !important;
+    opacity: 0.2;
+    transition: opacity 0.2s ease, color 0.2s ease;
+    white-space: nowrap;
+    letter-spacing: 2px;
+    display: flex;
+    align-items: center;
+}
+
+/* Left Gust Animation (`◀◀◀`) */
+.zone-header.wind-header.gust-left {
+    background: linear-gradient(90deg, #114b3e, #1a1a1a, #1a1a1a) !important;
+    border-bottom-color: #2ecc71 !important;
+    box-shadow: 0 0 12px rgba(46, 204, 113, 0.6) !important;
+}
+.zone-header.wind-header.gust-left .wind-text {
+    color: #2ecc71 !important;
+    text-shadow: 0 0 8px rgba(46, 204, 113, 0.9);
+}
+.zone-header.wind-header.gust-left .wind-arrows-left {
+    opacity: 1 !important;
+    color: #2ecc71 !important;
+    animation: wind-stream-left 0.45s infinite linear;
+}
+.zone-header.wind-header.gust-left .wind-arrows-right {
+    opacity: 0.1 !important;
+}
+
+/* Right Gust Animation (`▶▶▶`) */
+.zone-header.wind-header.gust-right {
+    background: linear-gradient(270deg, #641e16, #1a1a1a, #1a1a1a) !important;
+    border-bottom-color: #ff5252 !important;
+    box-shadow: 0 0 12px rgba(255, 82, 82, 0.6) !important;
+}
+.zone-header.wind-header.gust-right .wind-text {
+    color: #ff5252 !important;
+    text-shadow: 0 0 8px rgba(255, 82, 82, 0.9);
+}
+.zone-header.wind-header.gust-right .wind-arrows-right {
+    opacity: 1 !important;
+    color: #ff5252 !important;
+    animation: wind-stream-right 0.45s infinite linear;
+}
+.zone-header.wind-header.gust-right .wind-arrows-left {
+    opacity: 0.1 !important;
+}
+
+/* Calm State */
+.zone-header.wind-header.gust-calm {
+    background: #1a1a1a !important;
+    border-bottom-color: #f39c12 !important;
+    box-shadow: 0 0 8px rgba(243, 156, 18, 0.4) !important;
+}
+.zone-header.wind-header.gust-calm .wind-text {
+    color: #f39c12 !important;
+    text-shadow: 0 0 4px rgba(243, 156, 18, 0.6);
+}
+.zone-header.wind-header.gust-calm .wind-arrows {
+    opacity: 0.25 !important;
+    color: #f39c12 !important;
+}
+
+@keyframes wind-stream-left {
+    0% { transform: translateX(8px); opacity: 0.2; }
+    50% { opacity: 1; }
+    100% { transform: translateX(-8px); opacity: 0.2; }
+}
+
+@keyframes wind-stream-right {
+    0% { transform: translateX(-8px); opacity: 0.2; }
+    50% { opacity: 1; }
+    100% { transform: translateX(8px); opacity: 0.2; }
+}
+
+/* Online Matchmaking Live Radar Scanner (`visual loading for the user`) */
+.online-radar-container {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    margin: 14px auto;
+    border-radius: 50%;
+    border: 3px solid #00e5ff;
+    background: radial-gradient(circle, rgba(0, 229, 255, 0.18) 0%, rgba(11, 12, 16, 0.95) 100%);
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.6), inset 0 0 16px rgba(0, 229, 255, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.online-radar-circle {
+    position: absolute;
+    width: 80%;
+    height: 80%;
+    border-radius: 50%;
+    border: 1.5px dashed rgba(0, 229, 255, 0.45);
+}
+.online-radar-circle.inner {
+    width: 45%;
+    height: 45%;
+    border: 1.5px solid rgba(0, 229, 255, 0.65);
+}
+
+.online-radar-sweep {
+    position: absolute;
+    width: 50%;
+    height: 50%;
+    top: 0;
+    left: 50%;
+    transform-origin: 0% 100%;
+    background: linear-gradient(135deg, rgba(0, 229, 255, 0.85) 0%, rgba(0, 229, 255, 0) 70%);
+    animation: radar-sweep-spin 1.8s infinite linear;
+}
+
+@keyframes radar-sweep-spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.online-radar-icon {
+    font-size: 34px;
+    z-index: 5;
+    filter: drop-shadow(0 0 8px #00e5ff);
+    animation: radar-icon-pulse 1.2s infinite alternate ease-in-out;
+}
+
+@keyframes radar-icon-pulse {
+    0% { transform: scale(0.92); filter: drop-shadow(0 0 4px #00e5ff); }
+    100% { transform: scale(1.12); filter: drop-shadow(0 0 16px #00e5ff); }
+}
+
+.radar-dot {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    background: #2ecc71;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #2ecc71;
+    opacity: 0;
+    animation: radar-dot-blink 3.6s infinite ease-in-out;
+}
+.radar-dot.dot-1 { top: 28%; left: 68%; animation-delay: 0.6s; }
+.radar-dot.dot-2 { top: 72%; left: 34%; animation-delay: 1.8s; }
+
+@keyframes radar-dot-blink {
+    0%, 20% { opacity: 0; transform: scale(0.5); }
+    40%, 60% { opacity: 1; transform: scale(1.5); }
+    80%, 100% { opacity: 0; transform: scale(0.5); }
+}
+
+/* Compact Guided Tour inside Mobile Viewport (`tour is very big`) */
+@media (max-width: 780px) {
+    .tour-dialog-card {
+        padding: 8px 10px !important;
+        max-width: 260px !important;
+        width: 80% !important;
+        border-width: 2px !important;
+    }
+    .tour-dialog-title { font-size: 11px !important; margin-bottom: 4px !important; }
+    .tour-dialog-text { font-size: 9.5px !important; margin-bottom: 6px !important; }
+}
     </style>
 </head>
 <body>
@@ -4494,6 +4685,37 @@ function setupEventListeners() {
     });
 
     // Online, Invite Link, AI Bot, & Offline Mode Switchers inside ☰ MENU
+
+    // PWA Offline Installation Hook (`A2HS - Add to Home Screen`)
+    let deferredInstallPrompt = null;
+    if (typeof window !== 'undefined') {
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            const btnPwa = document.getElementById('btn-install-pwa');
+            if (btnPwa) btnPwa.style.display = 'flex';
+            console.log("[Zonke PWA] Install prompt captured and ready!");
+        });
+    }
+
+    const btnInstallPwa = document.getElementById('btn-install-pwa');
+    if (btnInstallPwa) {
+        btnInstallPwa.addEventListener('click', () => {
+            if (deferredInstallPrompt) {
+                deferredInstallPrompt.prompt();
+                deferredInstallPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('[Zonke PWA] User accepted the install prompt!');
+                        btnInstallPwa.style.display = 'none';
+                    }
+                    deferredInstallPrompt = null;
+                });
+            } else {
+                alert("📲 TO INSTALL ZONKE FOR OFFLINE PLAY:\n\n• On Android (Chrome): Tap the browser 3-dot menu (⋮) at top right and select 'Add to Home Screen' or 'Install App'.\n\n• On iPhone (Safari): Tap the Share icon ([↑]) at the bottom and select 'Add to Home Screen'.");
+            }
+        });
+    }
+
     const btnOnlineDuel = document.getElementById('btn-online-duel');
     const btnInviteFriend = document.getElementById('btn-invite-friend');
     const btnAiBot = document.getElementById('btn-ai-bot');
@@ -4583,9 +4805,26 @@ function setupEventListeners() {
                     gun: currentGun,
                     wins: myProfile.wins
                 });
-            } else {
+            } else if (socket) {
                 const msg = document.getElementById('online-status-msg');
-                if (msg) msg.textContent = "Socket.io Server offline on port 3000. Start `node server.js` to enable online PvP!";
+                if (msg) msg.innerHTML = `<div>Connecting to Cloud Matchmaking Server...</div><div style="font-size: 10px; color: var(--gold); margin-top: 4px;">(${typeof SERVER_API_URL !== 'undefined' ? SERVER_API_URL : 'http://localhost:3000'})</div>`;
+                socket.once('connect', () => {
+                    const badge = document.getElementById('online-mode-badge');
+                    if (badge) badge.innerHTML = `<span>🟢 ONLINE READY</span>`;
+                    socket.emit('find_match', {
+                        name: myProfile.username,
+                        avatar: myProfile.avatar,
+                        rank: getRankInfo(myProfile.xp),
+                        outfit: currentOutfit,
+                        gun: currentGun,
+                        wins: myProfile.wins
+                    });
+                });
+                setTimeout(() => {
+                    if (!socket.connected && msg) {
+                        msg.innerHTML = `<div style="color: #ea4335;">Cloud Server Offline / Cold Starting</div><div style="font-size: 10px; margin-top: 4px; color: var(--ink-black);">If you deployed to Netlify without hosting server.js on Render/Railway yet, start your cloud server or play AI Bot / Local Pass & Play!</div>`;
+                    }
+                }, 8000);
             }
         });
     }

@@ -2169,6 +2169,37 @@ function setupEventListeners() {
     });
 
     // Online, Invite Link, AI Bot, & Offline Mode Switchers inside ☰ MENU
+
+    // PWA Offline Installation Hook (`A2HS - Add to Home Screen`)
+    let deferredInstallPrompt = null;
+    if (typeof window !== 'undefined') {
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            const btnPwa = document.getElementById('btn-install-pwa');
+            if (btnPwa) btnPwa.style.display = 'flex';
+            console.log("[Zonke PWA] Install prompt captured and ready!");
+        });
+    }
+
+    const btnInstallPwa = document.getElementById('btn-install-pwa');
+    if (btnInstallPwa) {
+        btnInstallPwa.addEventListener('click', () => {
+            if (deferredInstallPrompt) {
+                deferredInstallPrompt.prompt();
+                deferredInstallPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('[Zonke PWA] User accepted the install prompt!');
+                        btnInstallPwa.style.display = 'none';
+                    }
+                    deferredInstallPrompt = null;
+                });
+            } else {
+                alert("📲 TO INSTALL ZONKE FOR OFFLINE PLAY:\n\n• On Android (Chrome): Tap the browser 3-dot menu (⋮) at top right and select 'Add to Home Screen' or 'Install App'.\n\n• On iPhone (Safari): Tap the Share icon ([↑]) at the bottom and select 'Add to Home Screen'.");
+            }
+        });
+    }
+
     const btnOnlineDuel = document.getElementById('btn-online-duel');
     const btnInviteFriend = document.getElementById('btn-invite-friend');
     const btnAiBot = document.getElementById('btn-ai-bot');
@@ -2258,9 +2289,26 @@ function setupEventListeners() {
                     gun: currentGun,
                     wins: myProfile.wins
                 });
-            } else {
+            } else if (socket) {
                 const msg = document.getElementById('online-status-msg');
-                if (msg) msg.textContent = "Socket.io Server offline on port 3000. Start `node server.js` to enable online PvP!";
+                if (msg) msg.innerHTML = `<div>Connecting to Cloud Matchmaking Server...</div><div style="font-size: 10px; color: var(--gold); margin-top: 4px;">(${typeof SERVER_API_URL !== 'undefined' ? SERVER_API_URL : 'http://localhost:3000'})</div>`;
+                socket.once('connect', () => {
+                    const badge = document.getElementById('online-mode-badge');
+                    if (badge) badge.innerHTML = `<span>🟢 ONLINE READY</span>`;
+                    socket.emit('find_match', {
+                        name: myProfile.username,
+                        avatar: myProfile.avatar,
+                        rank: getRankInfo(myProfile.xp),
+                        outfit: currentOutfit,
+                        gun: currentGun,
+                        wins: myProfile.wins
+                    });
+                });
+                setTimeout(() => {
+                    if (!socket.connected && msg) {
+                        msg.innerHTML = `<div style="color: #ea4335;">Cloud Server Offline / Cold Starting</div><div style="font-size: 10px; margin-top: 4px; color: var(--ink-black);">If you deployed to Netlify without hosting server.js on Render/Railway yet, start your cloud server or play AI Bot / Local Pass & Play!</div>`;
+                    }
+                }, 8000);
             }
         });
     }
