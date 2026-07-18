@@ -432,9 +432,14 @@ io.on('connection', (socket) => {
         socket.playerProfile = profile;
         const customCode = sanitizeString(data?.roomCode || `DUEL-${Math.floor(1000 + Math.random() * 9000)}`, 20);
 
+        if (inviteRooms[customCode] && inviteRooms[customCode].cleanupTimer) {
+            clearTimeout(inviteRooms[customCode].cleanupTimer);
+        }
+
         inviteRooms[customCode] = {
             id: customCode,
             host: socket,
+            hostId: socket.id,
             hostProfile: profile,
             createdAt: Date.now()
         };
@@ -442,8 +447,27 @@ io.on('connection', (socket) => {
         socket.roomId = customCode;
         socket.playerRole = 1;
 
-        console.log(`[Invite Room] Created room ${customCode} by ${profile.username}`);
+        console.log(`[Invite Room] Created room ${customCode} by ${profile.username} (${socket.id})`);
         socket.emit('invite_room_created', { roomCode: customCode, hostProfile: profile });
+    });
+
+    // Host Room Maintenance & Re-attachment (`keep host alive in room after polling->websocket upgrade or app switch`)
+    socket.on('maintain_invite_room', (data) => {
+        const roomCode = data?.roomCode;
+        if (!roomCode || !inviteRooms[roomCode]) return;
+        const invRoom = inviteRooms[roomCode];
+        if (invRoom.cleanupTimer) {
+            clearTimeout(invRoom.cleanupTimer);
+            invRoom.cleanupTimer = null;
+        }
+        if (invRoom.hostId !== socket.id || invRoom.host !== socket) {
+            console.log(`[Invite Room Reattach] Host socket updated for room ${roomCode}: ${invRoom.hostId} -> ${socket.id}`);
+            invRoom.host = socket;
+            invRoom.hostId = socket.id;
+            socket.join(roomCode);
+            socket.roomId = roomCode;
+            socket.playerRole = 1;
+        }
     });
 
     // Join Direct Invite Room via Link/Code
@@ -454,6 +478,10 @@ io.on('connection', (socket) => {
             return;
         }
         const invRoom = inviteRooms[roomCode];
+        if (invRoom.cleanupTimer) {
+            clearTimeout(invRoom.cleanupTimer);
+            invRoom.cleanupTimer = null;
+        }
         const hostSocket = invRoom.host;
         const p1Prof = invRoom.hostProfile;
 
@@ -484,21 +512,32 @@ io.on('connection', (socket) => {
 
         console.log(`[Invite Room] Match started inside ${roomCode}: ${p1Prof.username} vs ${profile.username}`);
 
-        hostSocket.emit('match_found', {
+        const matchDataP1 = {
             roomId: roomCode,
             role: 1,
             myProfile: p1Prof,
             opponentProfile: profile,
             wind: 0.0
-        });
-
-        socket.emit('match_found', {
+        };
+        const matchDataP2 = {
             roomId: roomCode,
             role: 2,
             myProfile: profile,
             opponentProfile: p1Prof,
             wind: 0.0
+        };
+
+        if (hostSocket && typeof hostSocket.emit === 'function') {
+            hostSocket.emit('match_found', matchDataP1);
+        }
+        // Broadcast directly to room so even if host socket ID changed slightly, all joined sockets receive match_found
+        io.to(roomCode).emit('match_found_broadcast', {
+            roomId: roomCode,
+            p1Profile: p1Prof,
+            p2Profile: profile,
+            wind: 0.0
         });
+        socket.emit('match_found', matchDataP2);
     });
 
     // Low Network / Lag Reconnection (`reconnect_to_match when cellular signal drops temporarily`)
@@ -534,9 +573,15 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         console.log(`[Socket.io] Player disconnected: ${socket.id}`);
-        if (socket.roomId && inviteRooms[socket.roomId] && inviteRooms[socket.roomId].host.id === socket.id) {
-            console.log(`[Invite Room] Host disconnected, closing invite ${socket.roomId}`);
-            delete inviteRooms[socket.roomId];
+        if (socket.roomId && inviteRooms[socket.roomId] && inviteRooms[socket.roomId].hostId === socket.id) {
+            const rId = socket.roomId;
+            console.log(`[Invite Room] Host disconnected briefly for ${rId}. Starting 5-minute survival grace timer for polling->websocket upgrade...`);
+            inviteRooms[rId].cleanupTimer = setTimeout(() => {
+                if (inviteRooms[rId]) {
+                    console.log(`[Invite Room] 5-minute survival window expired for ${rId}. Room closed.`);
+                    delete inviteRooms[rId];
+                }
+            }, 300000);
         }
         if (waitingSocket && waitingSocket.id === socket.id) {
             waitingSocket = null;

@@ -1484,8 +1484,28 @@ function setupSocketClient() {
                 const msg = document.getElementById('online-status-msg');
                 if (msg) msg.textContent = data.message;
             });
+            socket.on('match_found_broadcast', data => {
+                if (!isOnlineMode) return;
+                if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
+                const modal = document.getElementById('online-waiting-modal');
+                if (modal && modal.classList.contains('active')) {
+                    console.log(`[Online Match Broadcast] Host received room match broadcast for ${data.roomId}`);
+                    onlineRoomId = data.roomId;
+                    onlineRole = 1;
+                    opponentProfile = data.p2Profile;
+                    modal.classList.remove('active');
+                    if (menuModal) menuModal.classList.remove('active');
+                    startOnlineDuel({
+                        roomId: data.roomId,
+                        role: 1,
+                        myProfile: data.p1Profile || myProfile,
+                        opponentProfile: data.p2Profile
+                    });
+                }
+            });
             socket.on('match_found', data => {
                 isOnlineMode = true;
+                if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
                 onlineRole = data.role;
                 onlineRoomId = data.roomId;
                 const modal = document.getElementById('online-waiting-modal');
@@ -2277,15 +2297,37 @@ function setupEventListeners() {
             if (menuModal) menuModal.classList.remove('active');
             if (onlineWaitingModal) onlineWaitingModal.classList.add('active');
             isOnlineMode = true;
-            if (!socket) setupSocketClient();
+            onlineRole = 1;
             const code = "DUEL-" + Math.floor(1000 + Math.random() * 9000);
-            if (socket && socket.connected) {
-                socket.emit('create_invite_room', { roomCode: code, name: myProfile.username, avatar: myProfile.avatar, rank: getRankInfo(myProfile.xp) });
-            } else if (socket) {
-                socket.once('connect', () => {
-                    socket.emit('create_invite_room', { roomCode: code, name: myProfile.username, avatar: myProfile.avatar, rank: getRankInfo(myProfile.xp) });
+            onlineRoomId = code;
+            if (!socket) setupSocketClient();
+
+            const emitCreate = () => {
+                socket.emit('create_invite_room', {
+                    roomCode: code,
+                    name: myProfile.username,
+                    avatar: myProfile.avatar,
+                    rank: getRankInfo(myProfile.xp),
+                    outfit: currentOutfit,
+                    gun: currentGun,
+                    wins: myProfile.wins
                 });
+            };
+
+            if (socket && socket.connected) {
+                emitCreate();
+            } else if (socket) {
+                socket.once('connect', emitCreate);
             }
+
+            // Host Room Maintenance Heartbeat (`ensures host room survives socket reconnects or polling->websocket upgrade`)
+            if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
+            window._inviteMaintainInterval = setInterval(() => {
+                if (socket && socket.connected && onlineRoomId && isOnlineMode && onlineWaitingModal && onlineWaitingModal.classList.contains('active')) {
+                    socket.emit('maintain_invite_room', { roomCode: onlineRoomId, name: myProfile.username });
+                }
+            }, 2500);
+
             const inviteUrl = window.location.origin + window.location.pathname + '?room=' + code;
             const msg = document.getElementById('online-status-msg');
             if (msg) {
