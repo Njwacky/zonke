@@ -4073,29 +4073,36 @@ function setupSocketClient() {
             socket.on('match_found_broadcast', data => {
                 if (!isOnlineMode) return;
                 if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
-                const modal = document.getElementById('online-waiting-modal');
-                if (modal && modal.classList.contains('active')) {
-                    console.log(`[Online Match Broadcast] Host received room match broadcast for ${data.roomId}`);
+                if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
+                const onlineModal = document.getElementById('online-waiting-modal');
+                const inviteModal = document.getElementById('invite-accept-modal');
+                if ((onlineModal && onlineModal.classList.contains('active')) || (inviteModal && inviteModal.classList.contains('active')) || onlineRoomId === data.roomId) {
+                    console.log(`[Online Match Broadcast] Synchronizing match start inside ${data.roomId}`);
                     onlineRoomId = data.roomId;
-                    onlineRole = 1;
-                    opponentProfile = data.p2Profile;
-                    modal.classList.remove('active');
+                    if (onlineModal) onlineModal.classList.remove('active');
+                    if (inviteModal) inviteModal.classList.remove('active');
                     if (menuModal) menuModal.classList.remove('active');
+                    const role = (inviteModal && inviteModal.classList.contains('active')) ? 2 : (onlineRole || 1);
+                    onlineRole = role;
+                    opponentProfile = role === 1 ? data.p2Profile : data.p1Profile;
                     startOnlineDuel({
                         roomId: data.roomId,
-                        role: 1,
-                        myProfile: data.p1Profile || myProfile,
-                        opponentProfile: data.p2Profile
+                        role: role,
+                        myProfile: role === 1 ? (data.p1Profile || myProfile) : (data.p2Profile || myProfile),
+                        opponentProfile: opponentProfile
                     });
                 }
             });
             socket.on('match_found', data => {
                 isOnlineMode = true;
                 if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
+                if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
                 onlineRole = data.role;
                 onlineRoomId = data.roomId;
                 const modal = document.getElementById('online-waiting-modal');
                 if (modal) modal.classList.remove('active');
+                const inviteModal = document.getElementById('invite-accept-modal');
+                if (inviteModal) inviteModal.classList.remove('active');
                 if (menuModal) menuModal.classList.remove('active');
 
                 const vsModal = document.getElementById('online-vs-modal');
@@ -4204,8 +4211,9 @@ function setupSocketClient() {
                 }
             });
             socket.on('invite_join_error', data => {
+                if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
                 const statusEl = document.getElementById('invite-accept-status') || document.getElementById('online-status-msg');
-                if (statusEl) statusEl.innerHTML = `<span style="color: #ea4335;">❌ ${data.message || 'Room not found or already closed!'}</span>`;
+                if (statusEl) statusEl.innerHTML = `<span style="color: #ea4335;">❌ ${data.message || 'Room not found or host disconnected. Double-check the 4-digit code or ask your friend to create a fresh room!'}</span>`;
             });
         } catch (e) {
             console.log(`[Socket.io] Client offline fallback`);
@@ -4986,9 +4994,16 @@ function setupEventListeners() {
                 });
                 setTimeout(() => {
                     if (!socket.connected && msg) {
-                        msg.innerHTML = `<div style="color: #ea4335;">Cloud Server Offline / Cold Starting</div><div style="font-size: 10px; margin-top: 4px; color: var(--ink-black);">If you deployed to Netlify without hosting server.js on Render/Railway yet, start your cloud server or play AI Bot / Local Pass & Play!</div>`;
+                        msg.innerHTML = `
+                            <div style="color: #00e5ff; font-size: 12px; font-weight: 900; margin-bottom: 6px;">⚡ QUICK CONNECTION TIPS</div>
+                            <div style="font-size: 10.5px; color: var(--ink-black); text-align: left; background: rgba(0,0,0,0.06); padding: 8px; border-radius: 6px; line-height: 1.4;">
+                                • <b>Check Network Signal:</b> Ensure your Wi-Fi or Mobile Data connection is active and stable.<br>
+                                • <b>Fast 1v1 Pairing:</b> For the quickest connection, tap <b>🔗 INVITE FRIEND</b> in Menu and share your room link directly with a friend via WhatsApp!<br>
+                                • <b>Instant Practice:</b> Tap <b>🤖 DUEL AI BOT</b> for instant zero-latency combat training!
+                            </div>
+                        `;
                     }
-                }, 8000);
+                }, 6500);
             }
         });
     }
@@ -5062,26 +5077,57 @@ function setupEventListeners() {
             }
             isOnlineMode = true;
             if (!socket) setupSocketClient();
+            const cleanCode = rawVal.toUpperCase();
             const statusEl = document.getElementById('invite-accept-status');
-            if (statusEl) statusEl.innerHTML = `<span style="color: var(--gold);">Connecting to Room ${rawVal}...</span>`;
+            if (statusEl) statusEl.innerHTML = `<span style="color: var(--gold);">⚡ Connecting to Room ${cleanCode}... Pairing instantly!</span>`;
             
             const emitJoin = () => {
-                socket.emit('join_invite_room', {
-                    roomCode: rawVal.toUpperCase(),
-                    name: myProfile.username,
-                    avatar: myProfile.avatar,
-                    rank: getRankInfo(myProfile.xp),
-                    outfit: currentOutfit,
-                    gun: currentGun,
-                    wins: myProfile.wins
-                });
+                if (socket) {
+                    socket.emit('join_invite_room', {
+                        roomCode: cleanCode,
+                        name: myProfile.username,
+                        avatar: myProfile.avatar,
+                        rank: getRankInfo(myProfile.xp),
+                        outfit: currentOutfit,
+                        gun: currentGun,
+                        wins: myProfile.wins
+                    });
+                }
             };
 
             if (socket && socket.connected) {
                 emitJoin();
             } else if (socket) {
+                if (socket.connect) socket.connect();
                 socket.once('connect', emitJoin);
             }
+
+            // Auto-Retry Watchdog (`if connection or transport upgrade was pending, retry automatically so it never stops or gets stuck`)
+            if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
+            let retries = 0;
+            window._acceptWatchdog = setInterval(() => {
+                if (!inviteAcceptModal.classList.contains('active')) {
+                    clearInterval(window._acceptWatchdog);
+                    return;
+                }
+                retries++;
+                if (socket && socket.connected) {
+                    emitJoin();
+                } else if (socket && socket.connect) {
+                    socket.connect();
+                }
+                if (retries >= 3 && statusEl) {
+                    statusEl.innerHTML = `
+                        <div style="color: #00e5ff; font-size: 11px; margin-top: 4px;">⚡ Trying to connect to host room... Ensure both you and the host have active mobile data/Wi-Fi!</div>
+                    `;
+                }
+                if (retries >= 6 && statusEl) {
+                    clearInterval(window._acceptWatchdog);
+                    statusEl.innerHTML = `
+                        <div style="color: #ea4335; font-size: 11px; margin-top: 4px;">❌ Could not reach room ${cleanCode}. Ask your friend if the room is still open or tap <b>🔗 INVITE FRIEND</b> to create your own!</div>
+                    `;
+                }
+            }, 1800);
         };
 
         btnConfirmAcceptInvite.addEventListener('click', handleAcceptSubmit);

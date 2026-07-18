@@ -1,0 +1,308 @@
+diff --git a/RULES.md b/RULES.md
+index 93e6136..a6151fd 100644
+--- a/RULES.md
++++ b/RULES.md
+@@ -231,6 +231,7 @@ To guarantee engineering excellence, UI/UX accessibility, and strict adherence t
+ | **46. Mobile Settings & Modals Positioning Override (`100% Profile & Top Accessibility`)** | **+ Solved Mobile Settings Clipping (`"on mobile the settings should start a little bit lowe bcs the profie it not showing at all"`):** Previously, `#menu-modal .modal-box` relied on `align-items: center` vertically inside `.modal-overlay`. On mobile screens (`@media max-width: 780px`), when a tall modal (`max-height: 86vh`) centered vertically, its top edge pushed up underneath the mobile browser status bar or phone notch, pushing `#menu-profile-card` (the profile identity card at the top) out of the visible viewport! Enforced explicit mobile top positioning inside `style.css`: `.modal-overlay { align-items: flex-start !important; padding: 38px 6px 24px 6px !important; }` and `#menu-modal .modal-box { margin-top: 12px !important; }`.<br>**+ Instant Profile Population:** Added `updateProfileUI();` right inside `btnMenu.addEventListener('click')` inside `game.js`. Whenever `☰ MENU` opens on smartphone or desktop, the modal window starts exactly ~$50\text{px}$ below the top edge of the screen (`start a little bit lower`), displaying `#menu-profile-card` prominently right at the top! | **- Vertical Scrolling on Short Screens:** Modals on small phones may need scrolling.<br>👉 *Mitigation:* Added `overflow-y: auto !important; -webkit-overflow-scrolling: touch !important;` on both `.modal-overlay` and `.modal-box`! |
+ | **47. Friend Invite Acceptance Hub (`#invite-accept-modal`) & Low Network Cellular Grace Buffer (`45s Reconnect Window`)** | **+ Dedicated Friend Invite Acceptance Hub (`"where is a place to accept the link while your friend is waiting"`):** Added a 5th prominent action button right inside `☰ MENU` (`.menu-modes-grid`): **`📥 ACCEPT FRIEND INVITE (ENTER CODE / LINK)`** (`#btn-accept-invite`). Clicking it opens `#invite-accept-modal` featuring a clean text input (`#invite-code-input`) where your friend can enter the room code (`DUEL-4921`) or paste the full invitation URL (`https://.../?room=DUEL-4921`) while the host waits inside `#online-waiting-modal`. Our parser intelligently strips URL queries/prefixes and connects `join_invite_room` cleanly!<br>**+ Low Network Cellular Grace Buffer (`"remember to hamndle low network from one frind"`):** Replaced immediate disconnect forfeits inside `server.js` with our **45-Second Network Grace Buffer**. When a player experiences a temporary cellular signal drop (`socket.on('disconnect')`), `server.js` marks `room.isPausedForNetwork = true` and emits `opponent_network_lag` (`📶 FRIEND ON LOW NETWORK SIGNAL: Waiting to resume... 45s`) to the connected friend. If the disconnected friend reconnects (`reconnect_to_match`) within 45 seconds, `server.js` reattaches their new socket ID and emits `match_resumed_from_lag`, continuing the live match synchronously with zero lost target progress! | **- Opponent Wait Time:** Players wait up to 45 seconds before a forfeit occurs during signal drops.<br>👉 *Mitigation:* Displayed a real-time countdown (`#lag-timer`) inside `#network-lag-banner` right on the middle board so players see the exact reconnect status! |
+ | **48. Host Room Persistence & Re-Attachment (`Solves Polling -> WebSocket Upgrade Wiping Host Room`)** | **+ Solved Host Stale Socket & Room Wiping (`"the host send a link very nice then he accept but nothing happen in the host... the host need to stay in the room waiting"`):** When a host (`Role 1`) clicked `INVITE FRIEND via LINK`, Socket.io connected via HTTP long polling (`socket.id = ABC-123`) and created `inviteRooms['DUEL-XXXX']`. ~1.5s later (or when switching apps to share on WhatsApp), Socket.io upgraded to WebSockets (`socket.id = XYZ-789`), firing `socket.on('disconnect')` for the old polling socket. Because `server.js` immediately deleted `inviteRooms[socket.roomId]` on disconnect, the host's waiting room was wiped while they sat looking at the radar screen! Furthermore, even when the room survived, `hostSocket.emit('match_found')` emitted to the dead `ABC-123` socket ID.<br>**+ 3-Part Host Survival Engine (`server.js` & `game.js`):**<br>• **1st (`5-Minute Survival Grace`)**: Replaced immediate deletion in `server.js` (`disconnect`) with a 5-minute survival window (`cleanupTimer`), keeping `inviteRooms[roomCode]` alive when a host's transport upgrades or briefly drops.<br>• **2nd (`Host Heartbeat Re-Attachment`)**: Added `socket.on('maintain_invite_room')` in `server.js` and a 2.5s maintenance loop (`window._inviteMaintainInterval`) in `game.js`. If the host's socket ID upgrades or re-establishes while waiting (`isOnlineMode && onlineRole === 1`), `server.js` immediately updates `invRoom.host = socket; invRoom.hostId = socket.id; socket.join(roomCode);`!<br>• **3rd (`Exact Room Broadcast`)**: When `join_invite_room` runs, `server.js` emits BOTH to `hostSocket` AND to `io.to(roomCode).emit('match_found_broadcast', ...)` while `game.js` listens for `match_found_broadcast`. This guarantees that 100% of the time, the host receives the match trigger synchronously right alongside their friend! | **- Server Memory for Orphaned Rooms:** If a host closes the app permanently, the invite room stays in memory for 5 minutes.<br>👉 *Mitigation:* Kept our strict DOS hard limit (`max 500 rooms`), explicit 5-minute timeout (`cleanupTimer`), and 15-minute sweep loop inside `server.js`! |
++| **49. Auto-Retry Connection Watchdog & Stripping of Render/Supabase Technical Bloat (`Pure Player-Facing Utility`)** | **+ Solved Stuck "Connecting to DUEL-#" Status (`"it keep saying connecting to duel-# and stops there"`):** Previously, if a player clicked `🚀 ACCEPT INVITE` right while `socket` was initially connecting or transitioning between polling/WebSockets, `join_invite_room` could get dropped or delayed without automatic retries. Added **`window._acceptWatchdog` (Auto-Retry Connection Watchdog)** inside `game.js`: while `#invite-accept-modal` is active, every $1.8\text{s}$ the watchdog checks connection status, automatically re-emits `join_invite_room`, and provides real-time progress (`Trying to connect to host room...` / `Could not reach room... ask your friend if the room is open`).<br>**+ Stripped Technical Bloat for Useful Connection Tips (`"remove that thing if you waiting... about render superbase... say something useful like how you can make a quick connection"`):** Completely removed developer-facing deployment jargon (`"Cloud Server Offline... If you deployed to Netlify without hosting server.js on Render/Railway..."`) across `#online-status-msg`. Replaced with **`⚡ QUICK CONNECTION TIPS`**: clear, player-friendly guidance (`• Check Network Signal`, `• Fast 1v1 Pairing via Invite Link`, `• Instant Practice via AI Bot`)! | **- Repeated Socket Emissions During Lag:** Watchdog re-emits join attempts up to 6 times.<br>👉 *Mitigation:* `server.js` handles duplicate `join_invite_room` calls gracefully by verifying active room state and instantly resending `match_found_broadcast` if the match is already established! |
+ 
+ ### 🛠️ Claude's 11-Step Deep Re-Check Audit Checklist:
+ 1. **✅ Clean Separation Check:** Verify zero `<style>...</style>` or `<script>...</script>` blocks exist across HTML files (`index.html` and `zonke.html` purely link to external `style.css` and `game.js`).
+diff --git a/game.js b/game.js
+index 02af086..991f00f 100644
+--- a/game.js
++++ b/game.js
+@@ -1487,29 +1487,36 @@ function setupSocketClient() {
+             socket.on('match_found_broadcast', data => {
+                 if (!isOnlineMode) return;
+                 if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
+-                const modal = document.getElementById('online-waiting-modal');
+-                if (modal && modal.classList.contains('active')) {
+-                    console.log(`[Online Match Broadcast] Host received room match broadcast for ${data.roomId}`);
++                if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
++                const onlineModal = document.getElementById('online-waiting-modal');
++                const inviteModal = document.getElementById('invite-accept-modal');
++                if ((onlineModal && onlineModal.classList.contains('active')) || (inviteModal && inviteModal.classList.contains('active')) || onlineRoomId === data.roomId) {
++                    console.log(`[Online Match Broadcast] Synchronizing match start inside ${data.roomId}`);
+                     onlineRoomId = data.roomId;
+-                    onlineRole = 1;
+-                    opponentProfile = data.p2Profile;
+-                    modal.classList.remove('active');
++                    if (onlineModal) onlineModal.classList.remove('active');
++                    if (inviteModal) inviteModal.classList.remove('active');
+                     if (menuModal) menuModal.classList.remove('active');
++                    const role = (inviteModal && inviteModal.classList.contains('active')) ? 2 : (onlineRole || 1);
++                    onlineRole = role;
++                    opponentProfile = role === 1 ? data.p2Profile : data.p1Profile;
+                     startOnlineDuel({
+                         roomId: data.roomId,
+-                        role: 1,
+-                        myProfile: data.p1Profile || myProfile,
+-                        opponentProfile: data.p2Profile
++                        role: role,
++                        myProfile: role === 1 ? (data.p1Profile || myProfile) : (data.p2Profile || myProfile),
++                        opponentProfile: opponentProfile
+                     });
+                 }
+             });
+             socket.on('match_found', data => {
+                 isOnlineMode = true;
+                 if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
++                if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
+                 onlineRole = data.role;
+                 onlineRoomId = data.roomId;
+                 const modal = document.getElementById('online-waiting-modal');
+                 if (modal) modal.classList.remove('active');
++                const inviteModal = document.getElementById('invite-accept-modal');
++                if (inviteModal) inviteModal.classList.remove('active');
+                 if (menuModal) menuModal.classList.remove('active');
+ 
+                 const vsModal = document.getElementById('online-vs-modal');
+@@ -1618,8 +1625,9 @@ function setupSocketClient() {
+                 }
+             });
+             socket.on('invite_join_error', data => {
++                if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
+                 const statusEl = document.getElementById('invite-accept-status') || document.getElementById('online-status-msg');
+-                if (statusEl) statusEl.innerHTML = `<span style="color: #ea4335;">❌ ${data.message || 'Room not found or already closed!'}</span>`;
++                if (statusEl) statusEl.innerHTML = `<span style="color: #ea4335;">❌ ${data.message || 'Room not found or host disconnected. Double-check the 4-digit code or ask your friend to create a fresh room!'}</span>`;
+             });
+         } catch (e) {
+             console.log(`[Socket.io] Client offline fallback`);
+@@ -2400,9 +2408,16 @@ function setupEventListeners() {
+                 });
+                 setTimeout(() => {
+                     if (!socket.connected && msg) {
+-                        msg.innerHTML = `<div style="color: #ea4335;">Cloud Server Offline / Cold Starting</div><div style="font-size: 10px; margin-top: 4px; color: var(--ink-black);">If you deployed to Netlify without hosting server.js on Render/Railway yet, start your cloud server or play AI Bot / Local Pass & Play!</div>`;
++                        msg.innerHTML = `
++                            <div style="color: #00e5ff; font-size: 12px; font-weight: 900; margin-bottom: 6px;">⚡ QUICK CONNECTION TIPS</div>
++                            <div style="font-size: 10.5px; color: var(--ink-black); text-align: left; background: rgba(0,0,0,0.06); padding: 8px; border-radius: 6px; line-height: 1.4;">
++                                • <b>Check Network Signal:</b> Ensure your Wi-Fi or Mobile Data connection is active and stable.<br>
++                                • <b>Fast 1v1 Pairing:</b> For the quickest connection, tap <b>🔗 INVITE FRIEND</b> in Menu and share your room link directly with a friend via WhatsApp!<br>
++                                • <b>Instant Practice:</b> Tap <b>🤖 DUEL AI BOT</b> for instant zero-latency combat training!
++                            </div>
++                        `;
+                     }
+-                }, 8000);
++                }, 6500);
+             }
+         });
+     }
+@@ -2476,26 +2491,57 @@ function setupEventListeners() {
+             }
+             isOnlineMode = true;
+             if (!socket) setupSocketClient();
++            const cleanCode = rawVal.toUpperCase();
+             const statusEl = document.getElementById('invite-accept-status');
+-            if (statusEl) statusEl.innerHTML = `<span style="color: var(--gold);">Connecting to Room ${rawVal}...</span>`;
++            if (statusEl) statusEl.innerHTML = `<span style="color: var(--gold);">⚡ Connecting to Room ${cleanCode}... Pairing instantly!</span>`;
+             
+             const emitJoin = () => {
+-                socket.emit('join_invite_room', {
+-                    roomCode: rawVal.toUpperCase(),
+-                    name: myProfile.username,
+-                    avatar: myProfile.avatar,
+-                    rank: getRankInfo(myProfile.xp),
+-                    outfit: currentOutfit,
+-                    gun: currentGun,
+-                    wins: myProfile.wins
+-                });
++                if (socket) {
++                    socket.emit('join_invite_room', {
++                        roomCode: cleanCode,
++                        name: myProfile.username,
++                        avatar: myProfile.avatar,
++                        rank: getRankInfo(myProfile.xp),
++                        outfit: currentOutfit,
++                        gun: currentGun,
++                        wins: myProfile.wins
++                    });
++                }
+             };
+ 
+             if (socket && socket.connected) {
+                 emitJoin();
+             } else if (socket) {
++                if (socket.connect) socket.connect();
+                 socket.once('connect', emitJoin);
+             }
++
++            // Auto-Retry Watchdog (`if connection or transport upgrade was pending, retry automatically so it never stops or gets stuck`)
++            if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
++            let retries = 0;
++            window._acceptWatchdog = setInterval(() => {
++                if (!inviteAcceptModal.classList.contains('active')) {
++                    clearInterval(window._acceptWatchdog);
++                    return;
++                }
++                retries++;
++                if (socket && socket.connected) {
++                    emitJoin();
++                } else if (socket && socket.connect) {
++                    socket.connect();
++                }
++                if (retries >= 3 && statusEl) {
++                    statusEl.innerHTML = `
++                        <div style="color: #00e5ff; font-size: 11px; margin-top: 4px;">⚡ Trying to connect to host room... Ensure both you and the host have active mobile data/Wi-Fi!</div>
++                    `;
++                }
++                if (retries >= 6 && statusEl) {
++                    clearInterval(window._acceptWatchdog);
++                    statusEl.innerHTML = `
++                        <div style="color: #ea4335; font-size: 11px; margin-top: 4px;">❌ Could not reach room ${cleanCode}. Ask your friend if the room is still open or tap <b>🔗 INVITE FRIEND</b> to create your own!</div>
++                    `;
++                }
++            }, 1800);
+         };
+ 
+         btnConfirmAcceptInvite.addEventListener('click', handleAcceptSubmit);
+diff --git a/zonke.html b/zonke.html
+index d3d2592..4ac0987 100644
+--- a/zonke.html
++++ b/zonke.html
+@@ -4073,29 +4073,36 @@ function setupSocketClient() {
+             socket.on('match_found_broadcast', data => {
+                 if (!isOnlineMode) return;
+                 if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
+-                const modal = document.getElementById('online-waiting-modal');
+-                if (modal && modal.classList.contains('active')) {
+-                    console.log(`[Online Match Broadcast] Host received room match broadcast for ${data.roomId}`);
++                if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
++                const onlineModal = document.getElementById('online-waiting-modal');
++                const inviteModal = document.getElementById('invite-accept-modal');
++                if ((onlineModal && onlineModal.classList.contains('active')) || (inviteModal && inviteModal.classList.contains('active')) || onlineRoomId === data.roomId) {
++                    console.log(`[Online Match Broadcast] Synchronizing match start inside ${data.roomId}`);
+                     onlineRoomId = data.roomId;
+-                    onlineRole = 1;
+-                    opponentProfile = data.p2Profile;
+-                    modal.classList.remove('active');
++                    if (onlineModal) onlineModal.classList.remove('active');
++                    if (inviteModal) inviteModal.classList.remove('active');
+                     if (menuModal) menuModal.classList.remove('active');
++                    const role = (inviteModal && inviteModal.classList.contains('active')) ? 2 : (onlineRole || 1);
++                    onlineRole = role;
++                    opponentProfile = role === 1 ? data.p2Profile : data.p1Profile;
+                     startOnlineDuel({
+                         roomId: data.roomId,
+-                        role: 1,
+-                        myProfile: data.p1Profile || myProfile,
+-                        opponentProfile: data.p2Profile
++                        role: role,
++                        myProfile: role === 1 ? (data.p1Profile || myProfile) : (data.p2Profile || myProfile),
++                        opponentProfile: opponentProfile
+                     });
+                 }
+             });
+             socket.on('match_found', data => {
+                 isOnlineMode = true;
+                 if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
++                if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
+                 onlineRole = data.role;
+                 onlineRoomId = data.roomId;
+                 const modal = document.getElementById('online-waiting-modal');
+                 if (modal) modal.classList.remove('active');
++                const inviteModal = document.getElementById('invite-accept-modal');
++                if (inviteModal) inviteModal.classList.remove('active');
+                 if (menuModal) menuModal.classList.remove('active');
+ 
+                 const vsModal = document.getElementById('online-vs-modal');
+@@ -4204,8 +4211,9 @@ function setupSocketClient() {
+                 }
+             });
+             socket.on('invite_join_error', data => {
++                if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
+                 const statusEl = document.getElementById('invite-accept-status') || document.getElementById('online-status-msg');
+-                if (statusEl) statusEl.innerHTML = `<span style="color: #ea4335;">❌ ${data.message || 'Room not found or already closed!'}</span>`;
++                if (statusEl) statusEl.innerHTML = `<span style="color: #ea4335;">❌ ${data.message || 'Room not found or host disconnected. Double-check the 4-digit code or ask your friend to create a fresh room!'}</span>`;
+             });
+         } catch (e) {
+             console.log(`[Socket.io] Client offline fallback`);
+@@ -4986,9 +4994,16 @@ function setupEventListeners() {
+                 });
+                 setTimeout(() => {
+                     if (!socket.connected && msg) {
+-                        msg.innerHTML = `<div style="color: #ea4335;">Cloud Server Offline / Cold Starting</div><div style="font-size: 10px; margin-top: 4px; color: var(--ink-black);">If you deployed to Netlify without hosting server.js on Render/Railway yet, start your cloud server or play AI Bot / Local Pass & Play!</div>`;
++                        msg.innerHTML = `
++                            <div style="color: #00e5ff; font-size: 12px; font-weight: 900; margin-bottom: 6px;">⚡ QUICK CONNECTION TIPS</div>
++                            <div style="font-size: 10.5px; color: var(--ink-black); text-align: left; background: rgba(0,0,0,0.06); padding: 8px; border-radius: 6px; line-height: 1.4;">
++                                • <b>Check Network Signal:</b> Ensure your Wi-Fi or Mobile Data connection is active and stable.<br>
++                                • <b>Fast 1v1 Pairing:</b> For the quickest connection, tap <b>🔗 INVITE FRIEND</b> in Menu and share your room link directly with a friend via WhatsApp!<br>
++                                • <b>Instant Practice:</b> Tap <b>🤖 DUEL AI BOT</b> for instant zero-latency combat training!
++                            </div>
++                        `;
+                     }
+-                }, 8000);
++                }, 6500);
+             }
+         });
+     }
+@@ -5062,26 +5077,57 @@ function setupEventListeners() {
+             }
+             isOnlineMode = true;
+             if (!socket) setupSocketClient();
++            const cleanCode = rawVal.toUpperCase();
+             const statusEl = document.getElementById('invite-accept-status');
+-            if (statusEl) statusEl.innerHTML = `<span style="color: var(--gold);">Connecting to Room ${rawVal}...</span>`;
++            if (statusEl) statusEl.innerHTML = `<span style="color: var(--gold);">⚡ Connecting to Room ${cleanCode}... Pairing instantly!</span>`;
+             
+             const emitJoin = () => {
+-                socket.emit('join_invite_room', {
+-                    roomCode: rawVal.toUpperCase(),
+-                    name: myProfile.username,
+-                    avatar: myProfile.avatar,
+-                    rank: getRankInfo(myProfile.xp),
+-                    outfit: currentOutfit,
+-                    gun: currentGun,
+-                    wins: myProfile.wins
+-                });
++                if (socket) {
++                    socket.emit('join_invite_room', {
++                        roomCode: cleanCode,
++                        name: myProfile.username,
++                        avatar: myProfile.avatar,
++                        rank: getRankInfo(myProfile.xp),
++                        outfit: currentOutfit,
++                        gun: currentGun,
++                        wins: myProfile.wins
++                    });
++                }
+             };
+ 
+             if (socket && socket.connected) {
+                 emitJoin();
+             } else if (socket) {
++                if (socket.connect) socket.connect();
+                 socket.once('connect', emitJoin);
+             }
++
++            // Auto-Retry Watchdog (`if connection or transport upgrade was pending, retry automatically so it never stops or gets stuck`)
++            if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
++            let retries = 0;
++            window._acceptWatchdog = setInterval(() => {
++                if (!inviteAcceptModal.classList.contains('active')) {
++                    clearInterval(window._acceptWatchdog);
++                    return;
++                }
++                retries++;
++                if (socket && socket.connected) {
++                    emitJoin();
++                } else if (socket && socket.connect) {
++                    socket.connect();
++                }
++                if (retries >= 3 && statusEl) {
++                    statusEl.innerHTML = `
++                        <div style="color: #00e5ff; font-size: 11px; margin-top: 4px;">⚡ Trying to connect to host room... Ensure both you and the host have active mobile data/Wi-Fi!</div>
++                    `;
++                }
++                if (retries >= 6 && statusEl) {
++                    clearInterval(window._acceptWatchdog);
++                    statusEl.innerHTML = `
++                        <div style="color: #ea4335; font-size: 11px; margin-top: 4px;">❌ Could not reach room ${cleanCode}. Ask your friend if the room is still open or tap <b>🔗 INVITE FRIEND</b> to create your own!</div>
++                    `;
++                }
++            }, 1800);
+         };
+ 
+         btnConfirmAcceptInvite.addEventListener('click', handleAcceptSubmit);
