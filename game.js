@@ -1471,6 +1471,14 @@ function setupSocketClient() {
             socket.on('connect', () => {
                 const badge = document.getElementById('online-mode-badge');
                 if (badge) badge.innerHTML = `<span>🟢 ONLINE READY</span>`;
+                if (isOnlineMode && onlineRoomId && onlineRole) {
+                    console.log(`[Low Network Reconnect] Automatically rejoining match ${onlineRoomId}...`);
+                    socket.emit('reconnect_to_match', {
+                        roomId: onlineRoomId,
+                        role: onlineRole,
+                        name: myProfile.username
+                    });
+                }
             });
             socket.on('waiting_for_opponent', data => {
                 const msg = document.getElementById('online-status-msg');
@@ -1550,6 +1558,48 @@ function setupSocketClient() {
                 statusBox.textContent = data.message;
                 triggerNdiso(`Opponent ran away from the battlefield! You win by forfeit! 🏆`);
                 handleVictory(onlineRole);
+            });
+            socket.on('opponent_network_lag', data => {
+                if (!isOnlineMode) return;
+                const lagBanner = document.getElementById('network-lag-banner');
+                const lagTimer = document.getElementById('lag-timer');
+                if (lagBanner) {
+                    lagBanner.style.display = 'block';
+                    lagBanner.style.background = 'linear-gradient(90deg, #b71c1c, #d32f2f, #b71c1c)';
+                    lagBanner.innerHTML = `📶 FRIEND ON LOW NETWORK SIGNAL: Waiting to resume... (<span id="lag-timer">${data.graceSeconds || 45}</span>s)`;
+                }
+                let left = data.graceSeconds || 45;
+                if (window._lagCountdownInterval) clearInterval(window._lagCountdownInterval);
+                window._lagCountdownInterval = setInterval(() => {
+                    left--;
+                    const tEl = document.getElementById('lag-timer');
+                    if (tEl) tEl.textContent = left;
+                    if (left <= 0) {
+                        clearInterval(window._lagCountdownInterval);
+                    }
+                }, 1000);
+            });
+            socket.on('match_resumed_from_lag', data => {
+                if (!isOnlineMode) return;
+                if (window._lagCountdownInterval) clearInterval(window._lagCountdownInterval);
+                const lagBanner = document.getElementById('network-lag-banner');
+                if (lagBanner) {
+                    lagBanner.style.background = 'linear-gradient(90deg, #114b3e, #2ecc71, #114b3e)';
+                    lagBanner.innerHTML = `🟢 SIGNAL RESTORED! Friend reconnected. Match resuming synchronously!`;
+                    setTimeout(() => { if (lagBanner) lagBanner.style.display = 'none'; }, 2600);
+                }
+                if (data.currentTurn !== undefined) {
+                    currentPlayer = data.currentTurn;
+                    updateTurnIndicator();
+                }
+                if (data.wind !== undefined) {
+                    currentWind = data.wind;
+                    updateWind();
+                }
+            });
+            socket.on('invite_join_error', data => {
+                const statusEl = document.getElementById('invite-accept-status') || document.getElementById('online-status-msg');
+                if (statusEl) statusEl.innerHTML = `<span style="color: #ea4335;">❌ ${data.message || 'Room not found or already closed!'}</span>`;
             });
         } catch (e) {
             console.log(`[Socket.io] Client offline fallback`);
@@ -2240,9 +2290,11 @@ function setupEventListeners() {
             const msg = document.getElementById('online-status-msg');
             if (msg) {
                 msg.innerHTML = `
-                    <div style="margin-bottom: 8px;"><b>Private Room: ${code}</b></div>
-                    <div style="font-size: 11px; margin-bottom: 12px; word-break: break-all; color: var(--gold);">${inviteUrl}</div>
-                    <button class="btn btn-primary" id="btn-share-invite" style="padding: 8px 12px; font-size: 11px; width: 100%;">📋 COPY / SHARE INVITE LINK</button>
+                    <div style="font-size: 13px; font-weight: 900; color: #00e5ff; margin-bottom: 6px;">⏳ WAITING FOR FRIEND TO JOIN & ACCEPT...</div>
+                    <div style="font-size: 11px; color: var(--ink-grey); margin-bottom: 4px;">Private Room Code: <b style="color: var(--gold); font-size: 15px;">${code}</b></div>
+                    <div style="font-size: 10px; margin-bottom: 10px; word-break: break-all; background: rgba(0,0,0,0.5); padding: 6px; border-radius: 6px; color: #fff;">${inviteUrl}</div>
+                    <button class="btn btn-primary" id="btn-share-invite" style="padding: 8px 12px; font-size: 11px; width: 100%; margin-bottom: 6px;">📋 COPY / SHARE INVITE LINK</button>
+                    <div style="font-size: 10.5px; color: #aaa; line-height: 1.3;">Tell your friend to tap <b style="color: #fff;">📥 ACCEPT FRIEND INVITE</b> inside Menu or open your link!</div>
                 `;
                 setTimeout(() => {
                     const shareBtn = document.getElementById('btn-share-invite');
@@ -2336,8 +2388,90 @@ function setupEventListeners() {
         });
     }
 
+    const btnAcceptInvite = document.getElementById('btn-accept-invite');
+    const inviteAcceptModal = document.getElementById('invite-accept-modal');
+    const btnCloseInviteAccept = document.getElementById('btn-close-invite-accept');
+    const btnConfirmAcceptInvite = document.getElementById('btn-confirm-accept-invite');
+
+    if (btnAcceptInvite && inviteAcceptModal) {
+        btnAcceptInvite.addEventListener('click', () => {
+            if (menuModal) menuModal.classList.remove('active');
+            inviteAcceptModal.classList.add('active');
+            const statusEl = document.getElementById('invite-accept-status');
+            if (statusEl) statusEl.textContent = '';
+            const inp = document.getElementById('invite-code-input');
+            if (inp) {
+                inp.value = '';
+                inp.focus();
+            }
+        });
+    }
+
+    if (btnCloseInviteAccept && inviteAcceptModal) {
+        btnCloseInviteAccept.addEventListener('click', () => {
+            inviteAcceptModal.classList.remove('active');
+        });
+    }
+
+    if (btnConfirmAcceptInvite && inviteAcceptModal) {
+        const handleAcceptSubmit = () => {
+            const inp = document.getElementById('invite-code-input');
+            let rawVal = inp ? inp.value.trim() : '';
+            if (!rawVal) {
+                const statusEl = document.getElementById('invite-accept-status');
+                if (statusEl) statusEl.innerHTML = `<span style="color: #ea4335;">Please enter a Room Code (e.g. DUEL-4921)</span>`;
+                return;
+            }
+            if (rawVal.includes('?room=')) {
+                const parts = rawVal.split('?room=');
+                if (parts.length > 1) rawVal = parts[1].split('&')[0].trim();
+            } else if (rawVal.includes('DUEL-')) {
+                const idx = rawVal.indexOf('DUEL-');
+                rawVal = rawVal.slice(idx).split(' ')[0].trim();
+            }
+            if (!rawVal.startsWith('DUEL-')) {
+                rawVal = 'DUEL-' + rawVal.replace(/^DUEL-?/i, '');
+            }
+            isOnlineMode = true;
+            if (!socket) setupSocketClient();
+            const statusEl = document.getElementById('invite-accept-status');
+            if (statusEl) statusEl.innerHTML = `<span style="color: var(--gold);">Connecting to Room ${rawVal}...</span>`;
+            
+            const emitJoin = () => {
+                socket.emit('join_invite_room', {
+                    roomCode: rawVal.toUpperCase(),
+                    name: myProfile.username,
+                    avatar: myProfile.avatar,
+                    rank: getRankInfo(myProfile.xp),
+                    outfit: currentOutfit,
+                    gun: currentGun,
+                    wins: myProfile.wins
+                });
+            };
+
+            if (socket && socket.connected) {
+                emitJoin();
+            } else if (socket) {
+                socket.once('connect', emitJoin);
+            }
+        };
+
+        btnConfirmAcceptInvite.addEventListener('click', handleAcceptSubmit);
+        const inp = document.getElementById('invite-code-input');
+        if (inp) {
+            inp.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') handleAcceptSubmit();
+            });
+        }
+    }
+
     // Hamburger Menu Controls
-    if (btnMenu && menuModal) btnMenu.addEventListener('click', () => menuModal.classList.add('active'));
+    if (btnMenu && menuModal) {
+        btnMenu.addEventListener('click', () => {
+            updateProfileUI();
+            menuModal.classList.add('active');
+        });
+    }
     if (btnCloseMenu && menuModal) btnCloseMenu.addEventListener('click', () => menuModal.classList.remove('active'));
     
     if (btnNewMenu) btnNewMenu.addEventListener('click', () => {

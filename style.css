@@ -1968,3 +1968,55 @@ body.theme-wood .menu-section-title {
     .tour-dialog-title { font-size: 11px !important; margin-bottom: 4px !important; }
     .tour-dialog-text { font-size: 9.5px !important; margin-bottom: 6px !important; }
 }
+
+/* Mobile Settings & Modals Top Positioning Override (`start a little bit lower so profile is 100% visible`) */
+@media (max-width: 780px) {
+    .modal-overlay {
+        align-items: flex-start !important;
+        padding: 38px 6px 24px 6px !important;
+        overflow-y: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+    .modal-box {
+        margin: 0 auto !important;
+        max-height: calc(100vh - 60px) !important;
+        width: 96% !important;
+        padding: 14px 12px !important;
+        overflow-y: auto !important;
+    }
+    #menu-modal .modal-box {
+        margin-top: 12px !important;
+        max-height: calc(100vh - 54px) !important;
+    }
+    #menu-modal .profile-card {
+        padding: 6px 8px !important;
+        margin-bottom: 10px !important;
+    }
+}
+
+/* Friend Invite Acceptance Lobby & Low Network Grace Banner */
+#invite-accept-modal .modal-box {
+    max-width: 450px !important;
+    padding: 18px !important;
+}
+
+#network-lag-banner {
+    display: none;
+    background: linear-gradient(90deg, #b71c1c, #d32f2f, #b71c1c);
+    color: #ffffff;
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 900;
+    text-align: center;
+    margin: 4px 0;
+    border: 1.5px solid #ff5252;
+    box-shadow: 0 0 14px rgba(255, 82, 82, 0.8);
+    animation: network-lag-pulse 1.2s infinite alternate ease-in-out;
+    z-index: 20;
+}
+
+@keyframes network-lag-pulse {
+    0% { transform: scale(0.98); opacity: 0.9; }
+    100% { transform: scale(1.02); opacity: 1; box-shadow: 0 0 20px rgba(255, 82, 82, 1); }
+}

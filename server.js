@@ -501,6 +501,37 @@ io.on('connection', (socket) => {
         });
     });
 
+    // Low Network / Lag Reconnection (`reconnect_to_match when cellular signal drops temporarily`)
+    socket.on('reconnect_to_match', (data) => {
+        const roomId = data?.roomId;
+        const role = data?.role;
+        if (!roomId || !rooms[roomId]) {
+            socket.emit('invite_join_error', { message: "Match session expired or closed. Please start a new duel!" });
+            return;
+        }
+        const room = rooms[roomId];
+        if (room.disconnectTimer) {
+            clearTimeout(room.disconnectTimer);
+            room.disconnectTimer = null;
+        }
+        room.isPausedForNetwork = false;
+        if (role === 1) {
+            room.p1 = socket;
+            socket.playerRole = 1;
+        } else {
+            room.p2 = socket;
+            socket.playerRole = 2;
+        }
+        socket.join(roomId);
+        socket.roomId = roomId;
+        console.log(`[Low Network Recovery] Player ${role} (${socket.id}) successfully reconnected to ${roomId}!`);
+        io.to(roomId).emit('match_resumed_from_lag', {
+            currentTurn: room.currentTurn,
+            wind: room.wind || 0.0,
+            message: "🟢 Cellular / network signal restored! Match resuming synchronously."
+        });
+    });
+
     socket.on('disconnect', () => {
         console.log(`[Socket.io] Player disconnected: ${socket.id}`);
         if (socket.roomId && inviteRooms[socket.roomId] && inviteRooms[socket.roomId].host.id === socket.id) {
@@ -512,10 +543,24 @@ io.on('connection', (socket) => {
         }
         const roomId = socket.roomId;
         if (roomId && rooms[roomId]) {
-            socket.to(roomId).emit('opponent_disconnected', {
-                message: `Opponent lost connection or left the duel! You win by forfeit! 🏆`
+            const room = rooms[roomId];
+            // Low Network Grace Buffer (`45s reconnect window before forfeit`)
+            room.isPausedForNetwork = true;
+            socket.to(roomId).emit('opponent_network_lag', {
+                message: `📶 Friend has low network / packet loss! Waiting for auto-reconnect... (45s grace window)`,
+                graceSeconds: 45,
+                disconnectedRole: socket.playerRole
             });
-            delete rooms[roomId];
+            console.log(`[Low Network Buffer] Player ${socket.playerRole} inside ${roomId} disconnected. Starting 45s grace timer...`);
+            room.disconnectTimer = setTimeout(() => {
+                if (rooms[roomId] && rooms[roomId].isPausedForNetwork) {
+                    io.to(roomId).emit('opponent_disconnected', {
+                        message: `Opponent lost connection after 45s grace period! You win by forfeit! 🏆`
+                    });
+                    delete rooms[roomId];
+                    console.log(`[Low Network Buffer] 45s expired for room ${roomId}. Room closed.`);
+                }
+            }, 45000);
         }
     });
 });
