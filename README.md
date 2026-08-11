@@ -59,3 +59,17 @@ Set `PORT` env var to change the server port (default `3000`).
 - All server-bound payloads are sanitized/clamped server-side; turn cheating is rejected
   by the matchmaking engine (server-authoritative turn order).
 - Telemetry dashboard HTML-escapes all client-supplied values.
+
+## 🗄️ Supabase tables
+
+The browser talks to Supabase **directly via PostgREST** with the publishable anon key
+(`game.js → ZonkeSupabase`). The Node server does **not** need these tables.
+
+| Table | Used for |
+|---|---|
+| `profiles` | Career profile sync + global leaderboard |
+| `friends` | Friends list |
+| `zonkedb` | Player registry — one row per unique player (`id`, `created_at`, `player01 = username`). Written automatically on app open / profile save / victory sync. |
+
+Setup SQL (incl. Row Level Security policies) is in [`supabase_setup.sql`](supabase_setup.sql):
+Supabase Dashboard → **SQL Editor** → paste → **Run**.

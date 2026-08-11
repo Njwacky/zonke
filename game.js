@@ -448,8 +448,71 @@ const ZonkeSupabase = {
                 })
             });
             console.log(`[ZonkeSupabase] Synced profile ${profile.username} to Supabase cloud!`);
+            this.registerPlayer(cleanTag); // Also register the player in the `zonkedb` registry table
         } catch(e) {
             console.warn("[ZonkeSupabase] Profile sync error:", e);
+        }
+    },
+
+    /* ----------------------------------------------------------------------
+       `zonkedb` PLAYER REGISTRY TABLE (columns: id int8, created_at timestamptz, player01 text)
+       ----------------------------------------------------------------------
+       Records each unique player username the first time they sync from this
+       device. Uses check-then-insert so it works with OR without a UNIQUE
+       index on `player01`. Deduped per device via localStorage and guarded
+       against concurrent in-flight calls, so it costs at most 1 read + 1
+       write per player per device.
+       RLS must allow anon INSERT + SELECT on this table (see README).
+    ---------------------------------------------------------------------- */
+    _registeringPlayer: null,
+    registerPlayer: async function(username) {
+        if (!this.isConfigured() || !navigator.onLine) return;
+        const cleanTag = String(username || '').replace(/<[^>]*>?/gm, '').trim().slice(0, 16);
+        if (!cleanTag) return;
+        try {
+            if (localStorage.getItem('zonke_registered_player') === cleanTag) return; // already registered on this device
+        } catch(e) {}
+        if (this._registeringPlayer === cleanTag) return; // in-flight duplicate guard
+        this._registeringPlayer = cleanTag;
+        try {
+            const authHeaders = {
+                "apikey": SUPABASE_ANON_KEY,
+                "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+            };
+            // 1. Look up whether this username is already registered:
+            const checkResp = await fetch(`${SUPABASE_URL}/rest/v1/zonkedb?player01=eq.${encodeURIComponent(cleanTag)}&select=id&limit=1`, {
+                method: "GET",
+                headers: authHeaders
+            });
+            if (checkResp.ok) {
+                const existing = await checkResp.json();
+                if (Array.isArray(existing) && existing.length > 0) {
+                    try { localStorage.setItem('zonke_registered_player', cleanTag); } catch(e) {}
+                    return;
+                }
+            }
+            // 2. Not registered yet -> insert a new row (`id` and `created_at` auto-generate):
+            const resp = await fetch(`${SUPABASE_URL}/rest/v1/zonkedb`, {
+                method: "POST",
+                headers: {
+                    ...authHeaders,
+                    "Content-Type": "application/json",
+                    "Prefer": "return=minimal"
+                },
+                body: JSON.stringify({ player01: cleanTag })
+            });
+            if (resp.ok || resp.status === 201 || resp.status === 409) { // 409 = raced duplicate (needs UNIQUE index), still fine
+                try { localStorage.setItem('zonke_registered_player', cleanTag); } catch(e) {}
+                if (resp.ok || resp.status === 201) {
+                    console.log(`[ZonkeSupabase] Registered player ${cleanTag} in zonkedb registry table!`);
+                }
+            } else {
+                console.warn(`[ZonkeSupabase] zonkedb registration returned HTTP ${resp.status}`);
+            }
+        } catch(e) {
+            console.warn("[ZonkeSupabase] zonkedb registration error:", e);
+        } finally {
+            this._registeringPlayer = null;
         }
     },
 
