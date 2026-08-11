@@ -5,10 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js && node --check game.js && node --check sw.js",
     "build:mobile": "npx cap sync && npx cap open android"
-
-    
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "keywords": [
     "zonke",

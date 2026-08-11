@@ -1,4 +1,4 @@
-const CACHE_NAME = 'zonke-cache-v1';
+const CACHE_NAME = 'zonke-cache-v2';
 const ASSETS_TO_CACHE = [
     'index.html',
     'style.css',
@@ -6,6 +6,11 @@ const ASSETS_TO_CACHE = [
     'manifest.json',
     'icon.svg'
 ];
+
+// URLs that must NEVER be cached: realtime socket polling/upgrade traffic and live
+// telemetry endpoints. Without this, the cache grows unbounded with polling responses
+// and stale telemetry would be served offline.
+const NEVER_CACHE = ['/api/', '/socket.io/', '/telemetry'];
 
 self.addEventListener('install', event => {
     event.waitUntil(
@@ -30,7 +35,8 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-    if (event.request.method !== 'GET' || event.request.url.includes('/api/')) return;
+    if (event.request.method !== 'GET') return;
+    if (NEVER_CACHE.some(path => event.request.url.includes(path))) return;
     event.respondWith(
         caches.match(event.request).then(cachedResponse => {
             if (cachedResponse) return cachedResponse;

@@ -10,8 +10,30 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
-app.use(express.json()); // Parse JSON payloads for /api/heartbeat, /api/events, /api/performance
+
+// Lightweight security headers on every response (no external deps needed):
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    next();
+});
+
+// Parse JSON payloads for /api/heartbeat, /api/events, /api/performance.
+// 16kb cap blocks oversized-body DoS attempts while leaving plenty of room for telemetry.
+app.use(express.json({ limit: '16kb' }));
 app.use(express.static('.')); // Serve static game files (`index.html`, `style.css`, `game.js`) off port 3000
+
+// HTML-escape helper: telemetry values (username, message, type...) come from untrusted
+// client POST bodies, so escape them before rendering into the /telemetry dashboard.
+function escapeHtml(str) {
+    return String(str === null || str === undefined ? '' : str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -218,16 +240,19 @@ app.get('/telemetry', (req, res) => {
             <h2>📝 RECENT EVENT LOGS</h2>
             <table>
                 <tr><th>ID</th><th>Type</th><th>Severity</th><th>Username</th><th>Message</th><th>Timestamp</th></tr>
-                ${telemetryStore.eventLogs.slice(0, 15).map(e => `
+                ${telemetryStore.eventLogs.slice(0, 15).map(e => {
+                    // Whitelist severity css class so a crafted severity can't inject attributes/HTML
+                    const sevClass = ['critical', 'warning', 'info'].includes(e.severity) ? e.severity : 'info';
+                    return `
                     <tr>
-                        <td>#${e.id}</td>
-                        <td><strong>${e.type}</strong></td>
-                        <td class="sev-${e.severity}">${e.severity.toUpperCase()}</td>
-                        <td>${e.username}</td>
-                        <td>${e.message}</td>
-                        <td>${new Date(e.timestamp).toLocaleTimeString()}</td>
-                    </tr>
-                `).join('')}
+                        <td>#${Number(e.id) || 0}</td>
+                        <td><strong>${escapeHtml(e.type)}</strong></td>
+                        <td class="sev-${sevClass}">${escapeHtml(String(e.severity || 'info').toUpperCase())}</td>
+                        <td>${escapeHtml(e.username)}</td>
+                        <td>${escapeHtml(e.message)}</td>
+                        <td>${escapeHtml(new Date(e.timestamp).toLocaleTimeString())}</td>
+                    </tr>`;
+                }).join('')}
             </table>
         </body>
         </html>
