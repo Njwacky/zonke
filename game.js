@@ -373,10 +373,14 @@ function playSound(type) {
 /* ==========================================================================
    PRODUCTION OBSERVABILITY & TELEMETRY CLIENT ENGINE (`App Dashboard Monitoring`)
    ========================================================================== */
-// Automatic Backend Detection for Netlify / Cloudflare / Local deployment:
-const SERVER_API_URL = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? "http://localhost:3000"
-    : "https://zonke-server.onrender.com"; // Replace with your live Render/Railway server URL when deploying backend!
+// Automatic Backend Detection for Netlify / Cloudflare / Local deployment.
+// Priority: explicit `window.ZONKE_SERVER_URL` override (define it in a small inline
+// <script> before game.js for custom deployments) > localhost dev > production Render URL.
+const SERVER_API_URL = (typeof window !== 'undefined' && window.ZONKE_SERVER_URL)
+    ? window.ZONKE_SERVER_URL
+    : (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? "http://localhost:3000"
+        : "https://zonke-server.onrender.com"); // Replace with your live Render/Railway server URL when deploying backend!
 
 
 /* ==========================================================================
@@ -762,7 +766,12 @@ function skipGuidedTour() {
 /* ==========================================================================
    INITIALIZATION & DOM BUILDER
    ========================================================================== */
+let hasInitialized = false; // Guard against double-init (script load timing defer/async edge cases)
+
 function init() {
+    if (hasInitialized) return; // Prevent duplicate event listeners & rebuilt DOM if init is triggered twice
+    hasInitialized = true;
+
     ball.el = document.getElementById('paper-ball');
     p1Wrapper = document.getElementById('p1-rows-wrapper');
     p2Wrapper = document.getElementById('p2-rows-wrapper');
@@ -828,6 +837,15 @@ function init() {
     updateDimensions();
     window.addEventListener('resize', updateDimensions);
     window.addEventListener('load', updateDimensions);
+
+    // Auto-pause when the player switches apps/tabs mid-match (offline modes only).
+    // requestAnimationFrame freezes in hidden tabs, so without this the per-player
+    // clocks keep ticking and a "hidden tab" flick would resume in a stale state.
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && !isOnlineMode && !gameOver && !isPaused && hasInitialized) {
+            togglePauseGame(true); // silent: no sound/haptic buzz from a background tab
+        }
+    });
 
     resetBallToLaunch();
     updateScores();
@@ -1150,9 +1168,25 @@ function resetBallToLaunch() {
 }
 
 /* ==========================================================================
-   MAIN GAME HEARTBEAT (60fps requestAnimationFrame)
+   MAIN GAME HEARTBEAT (60fps requestAnimationFrame, delta-time normalized)
    ========================================================================== */
-function togglePauseGame() {
+// Frame-time tracking for delta-time normalization.
+// Every motion constant in this engine (gravity, wind drift, power-bar sweep speed,
+// easing factors) is tuned in "per 60fps frame" units. Modern phones/monitors run
+// requestAnimationFrame at 90Hz/120Hz/144Hz, which previously made the ENTIRE game
+// play 1.5x-2.4x too fast on those devices. `frameDelta` scales all per-frame motion
+// so gameplay speed is identical at any refresh rate (frameDelta === 1.0 at exactly 60fps).
+let lastFrameTime = 0;
+let frameDelta = 1.0;
+const FRAME_MS_60FPS = 1000 / 60.0;
+
+// Framerate-independent easing helpers:
+// A per-frame exponential factor of `k` (e.g. keep 55% of velocity / cover 18% of
+// distance each frame) is generalized to any dt via pow(k, dt).
+function expKeep(perFrameKeep, dt) { return Math.pow(perFrameKeep, dt); }
+function expStep(perFrameStep, dt) { return 1 - Math.pow(1 - perFrameStep, dt); }
+
+function togglePauseGame(silent = false) {
     if (gameOver || phase === 'SNAPPING') return;
     isPaused = !isPaused;
 
@@ -1165,7 +1199,7 @@ function togglePauseGame() {
             btnP.classList.add('paused');
         }
         if (overlay) overlay.classList.add('active');
-        playSound('select');
+        if (!silent) playSound('select');
         triggerNdiso(`Sho! Match paused! Take a breather or check your strategy! ⏸️`);
     } else {
         if (btnP) {
@@ -1173,15 +1207,28 @@ function togglePauseGame() {
             btnP.classList.remove('paused');
         }
         if (overlay) overlay.classList.remove('active');
-        playSound('select');
+        if (!silent) playSound('select');
         triggerNdiso(`Match resumed! Back to the action! 🚀`);
     }
 }
 
-function gameLoop() {
+function gameLoop(timestamp) {
+    // Delta-time normalization: scale every per-frame motion constant by the real
+    // elapsed time (measured in 60fps frame units). Clamped to [0.25, 3.0] frames so
+    // tiny scheduling jitters and long tab-switch gaps don't teleport the ball.
+    if (typeof timestamp === 'number') {
+        if (lastFrameTime > 0) {
+            frameDelta = Math.min(Math.max((timestamp - lastFrameTime) / FRAME_MS_60FPS, 0.25), 3.0);
+        } else {
+            frameDelta = 1.0;
+        }
+        lastFrameTime = timestamp;
+    }
+    const dt = frameDelta;
+
     if (!gameOver && !isPaused) {
         if (phase === 'IDLE') {
-            updatePowerBar();
+            updatePowerBar(dt);
             if (ball.el && middleBoard && middleBoard.clientWidth > 0 && middleBoard.clientHeight > 0) {
                 boardRect.width = middleBoard.clientWidth;
                 boardRect.height = middleBoard.clientHeight;
@@ -1189,13 +1236,13 @@ function gameLoop() {
                 updateBallToCradleCenter();
             }
         } else if (phase === 'MOVING') {
-            updatePhysics();
+            updatePhysics(dt);
         } else if (phase === 'SNAPPING') {
-            updateSnapping();
+            updateSnapping(dt);
         } else if (phase === 'LANDED') {
-            updateHoverLanded();
+            updateHoverLanded(dt);
         } else if (phase === 'RETURNING') {
-            updateReturning();
+            updateReturning(dt);
         }
     }
     requestAnimationFrame(gameLoop);
@@ -1265,11 +1312,11 @@ function updateAimGearUI() {
     }
 }
 
-function updatePowerBar() {
+function updatePowerBar(dt = 1.0) {
     if (!powerFill || !powerMarker) return;
     const bounds = getActiveAimBounds();
 
-    powerVal += powerDir * bounds.speed;
+    powerVal += powerDir * bounds.speed * dt;
     if (powerVal >= 100) {
         powerVal = 100;
         powerDir = -1;
@@ -1282,18 +1329,18 @@ function updatePowerBar() {
     powerMarker.style.left = `${powerVal}%`;
 }
 
-function updatePhysics() {
+function updatePhysics(dt = 1.0) {
     const gravity = 0.44;
     const damping = activeSpecialShot === 'STICKY' ? 0.12 : 0.82; // Sticky shot has almost zero wall bounce!
 
-    ball.vy += gravity;
-    ball.y += ball.vy;
-    ball.x += currentWind; // Stoep Wind pushes the ball sideways during flight!
+    ball.vy += gravity * dt;
+    ball.y += ball.vy * dt;
+    ball.x += currentWind * dt; // Stoep Wind pushes the ball sideways during flight!
     if (ball.x < 2) ball.x = 2;
     if (ball.x > boardRect.width - (ball.radius * 2) - 2) {
         ball.x = boardRect.width - (ball.radius * 2) - 2;
     }
-    ball.rotation += ball.vRot + (currentWind * 2);
+    ball.rotation += (ball.vRot + (currentWind * 2)) * dt;
 
     // Top Ceiling Bounce
     if (ball.y < 0) {
@@ -1343,14 +1390,14 @@ function updatePhysics() {
     updateBallVisual();
 }
 
-function updateSnapping() {
+function updateSnapping(dt = 1.0) {
     const topOffset = targetRowsContainer ? targetRowsContainer.offsetTop : 22;
     let targetBallY;
     if (ball.targetBoardRowIndex === 'BONUS') {
         targetBallY = topOffset + (targetAreaHeight * 0.5) - ball.radius;
         const targetBallX = (boardRect.width * 0.50) - ball.radius;
         const diffX = targetBallX - ball.x;
-        ball.x += diffX * 0.24; // Pull directly inside the center circle!
+        ball.x += diffX * expStep(0.24, dt); // Pull directly inside the center circle!
     } else {
         const rowHeight = targetAreaHeight / TOTAL_ROWS;
         const targetCenterY = topOffset + ((ball.targetBoardRowIndex + 0.5) * rowHeight);
@@ -1358,9 +1405,9 @@ function updateSnapping() {
     }
 
     const diff = targetBallY - ball.y;
-    ball.vy = (ball.vy * 0.55) + (diff * 0.18);
-    ball.y += ball.vy;
-    ball.rotation += ball.vRot * 0.35;
+    ball.vy = (ball.vy * expKeep(0.55, dt)) + (diff * expStep(0.18, dt));
+    ball.y += ball.vy * dt;
+    ball.rotation += ball.vRot * 0.35 * dt;
 
     updateBallVisual();
 
@@ -1372,7 +1419,7 @@ function updateSnapping() {
     }
 }
 
-function updateHoverLanded() {
+function updateHoverLanded(dt = 1.0) {
     const topOffset = targetRowsContainer ? targetRowsContainer.offsetTop : 22;
     let targetBallY;
     if (ball.targetBoardRowIndex === 'BONUS') {
@@ -1384,12 +1431,12 @@ function updateHoverLanded() {
         targetBallY = targetCenterY - ball.radius;
     }
 
-    ball.y = targetBallY + Math.sin(Date.now() / 140) * 2.2;
-    ball.rotation += 0.6;
+    ball.y = targetBallY + Math.sin(Date.now() / 140) * 2.2; // already time-based
+    ball.rotation += 0.6 * dt;
     updateBallVisual();
 }
 
-function updateReturning() {
+function updateReturning(dt = 1.0) {
     const cradle = document.querySelector('.launch-pad-cradle');
     let startX = (boardRect.width / 3) - ball.radius;
     let startY = launchPadCenterY - ball.radius;
@@ -1405,9 +1452,9 @@ function updateReturning() {
     const dx = startX - ball.x;
     const dy = startY - ball.y;
 
-    ball.x += dx * 0.15;
-    ball.y += dy * 0.15;
-    ball.rotation += 14;
+    ball.x += dx * expStep(0.15, dt);
+    ball.y += dy * expStep(0.15, dt);
+    ball.rotation += 14 * dt;
 
     updateBallVisual();
 
