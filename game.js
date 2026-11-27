@@ -62,7 +62,7 @@ const ball = {
     rotation: 0,
     vRot: 0,
     bounceCount: 0,
-    targetBoardRowIndex: -1 // 0..11 or 'BONUS'
+    targetBoardRowIndex: -1 // 0..8 (TOTAL_ROWS - 1) or 'BONUS'
 };
 
 /* ==========================================================================
@@ -716,7 +716,7 @@ const TOUR_STEPS = [
     {
         badge: "STEP 3 OF 6",
         title: "⭐ THE CENTER BONUS JACKPOT",
-        text: "Look right at the middle line between Row 6 and Row 7! This is the `--⭕-- BONUS +1` target! Land here to upgrade ALL your surviving soldiers by +1 stage instantly!",
+        text: "Look right at the middle line between Row 5 and Row 6! This is the `--⭕-- BONUS +1` target! Land here to upgrade ALL your surviving soldiers by +1 stage instantly!",
         selector: ".floating-bonus-badge"
     },
     {
@@ -1136,7 +1136,7 @@ function buildBoardRows() {
     if (!targetRowsContainer) return;
     targetRowsContainer.querySelectorAll('.board-row, .floating-bonus-badge').forEach(r => r.remove());
 
-    // Exactly 12 target rows aligning 1-to-1 with Box 0..11, without `ROW 1..12` text ("remove those words row1-12")!
+    // Exactly 9 target rows aligning 1-to-1 with Box 0..8, without `ROW 1..9` text ("remove those words row1-12")!
     for (let r = 0; r < TOTAL_ROWS; r++) {
         const row = document.createElement('div');
         row.className = 'board-row';
@@ -1786,7 +1786,7 @@ function triggerFlick(isRemoteOpponent = false) {
     let maxLaunch = 33.5;
 
     if (gear === 'LOW') {
-        // Tuned specifically so soft lobs (5% - 30%) gently arc into and perfectly capture the bottom/last 2 soldiers (Row 11 & 12)!
+        // Tuned specifically so soft lobs (5% - 30%) gently arc into and perfectly capture the bottom/last 2 soldiers (Row 8 & 9)!
         minLaunch = 10.5;
         maxLaunch = 26.0;
     } else if (gear === 'HIGH') {
