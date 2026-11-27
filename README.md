@@ -91,5 +91,8 @@ The browser talks to Supabase **directly via PostgREST** with the publishable an
 | `friends` | Friends list |
 | `zonkedb` | Player registry — one row per unique player (`id`, `created_at`, `player01 = username`). Written automatically on app open / profile save / victory sync. |
 
-Setup SQL (incl. Row Level Security policies) is in [`supabase_setup.sql`](supabase_setup.sql):
-Supabase Dashboard → **SQL Editor** → paste → **Run**.
+Setup SQL for the **`zonkedb`** table (incl. Row Level Security policies) is in
+[`supabase_setup.sql`](supabase_setup.sql): Supabase Dashboard → **SQL Editor** →
+paste → **Run**. That file creates *only* `zonkedb` — the `profiles` and `friends`
+tables are not defined there; verify their schema and RLS policies directly in the
+dashboard (scheduled for audit in Stage 4).

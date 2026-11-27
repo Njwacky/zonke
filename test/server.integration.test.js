@@ -134,11 +134,13 @@ test('integration: server starts and serves the canonical entry point', async ()
     assert.equal(entry.status, 200);
 });
 
-test('integration: telemetry endpoints answer as documented', async () => {
+test('integration: telemetry endpoints answer as documented (all four API surfaces + dashboard)', async () => {
+    // 5. GET /telemetry — built-in dashboard
     const dash = await fetch(`${BASE}/telemetry`);
     assert.equal(dash.status, 200);
     assert.ok((await dash.text()).includes('ZONKE TELEMETRY'));
 
+    // 2. POST /api/events/
     const post = await fetch(`${BASE}/api/events/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -148,6 +150,40 @@ test('integration: telemetry endpoints answer as documented', async () => {
     const posted = await post.json();
     assert.equal(posted.status, 'success');
 
+    // 2b. GET /api/events/
+    const eventsGet = await fetch(`${BASE}/api/events/?limit=5`);
+    assert.equal(eventsGet.status, 200);
+    const eventsJson = await eventsGet.json();
+    assert.ok(Array.isArray(eventsJson.events) && eventsJson.events.length > 0);
+
+    // 1. POST /api/heartbeat/ (and GET below)
+    const hbPost = await fetch(`${BASE}/api/heartbeat/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appId: 'com.zonke.kasiwars', status: 'online', device: 'stage0-test', version: '1.0.0' })
+    });
+    assert.equal(hbPost.status, 200);
+    const hbJson = await hbPost.json();
+    assert.equal(hbJson.serverStatus, 'online');
+
+    const hbGet = await fetch(`${BASE}/api/heartbeat/`);
+    assert.equal(hbGet.status, 200);
+    assert.ok((await hbGet.json()).lastHeartbeat);
+
+    // 3. POST /api/performance/ (and GET below)
+    const perfPost = await fetch(`${BASE}/api/performance/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lcp: 1234.5, inp: 55.5, cls: 0.02, fps: 58 })
+    });
+    assert.equal(perfPost.status, 200);
+    const perfGet = await fetch(`${BASE}/api/performance/`);
+    assert.equal(perfGet.status, 200);
+    const perfJson = await perfGet.json();
+    assert.equal(perfJson.performance.lcp, 1234.5, 'POSTed LCP must be stored');
+    assert.equal(perfJson.performance.inp, 55.5);
+
+    // 4. GET /api/app-detail/
     const detail = await fetch(`${BASE}/api/app-detail/`);
     assert.equal(detail.status, 200);
     const json = await detail.json();
@@ -196,6 +232,26 @@ test('integration: payload clamping — power/wind/specialShot sanitised in rela
     assert.equal(flick.wind, 2.0, 'wind must clamp to -2..2');
     assert.equal(flick.specialShot, 'NORMAL', 'unknown specialShot must fall back to NORMAL');
     assert.equal(flick.playerRole, 1);
+});
+
+test('integration: loadout change relays with tag/character sanitisation', async () => {
+    const a = await connect();
+    const b = await connect();
+
+    const aFound = waitFor(a, 'match_found');
+    const bFound = waitFor(b, 'match_found');
+    a.emit('find_match', { name: 'Load_P1' });
+    await waitFor(a, 'waiting_for_opponent');
+    b.emit('find_match', { name: 'Load_P2' });
+    await Promise.all([aFound, bFound]);
+
+    const relayed = waitFor(b, 'opponent_loadout_change');
+    a.emit('player_loadout_change', { outfit: 'outfit-<b>pilot</b>', gun: 'm416!!' });
+    const lo = await relayed;
+
+    assert.equal(lo.outfit, 'outfit-pilot', 'HTML tags must be stripped from outfit');
+    assert.equal(lo.gun, 'm416', 'special characters must be stripped from gun');
+    assert.equal(lo.playerRole, 1);
 });
 
 test('integration: turn anti-cheat — out-of-turn flick is dropped', async () => {

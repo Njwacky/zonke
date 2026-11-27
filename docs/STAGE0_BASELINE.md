@@ -54,7 +54,7 @@
 | `style.css` | Themes/outfits/layout, `.floating-bonus-badge` at `left/top: 50%` | Consistent with 9-row board |
 | `RULES.md` | 79 KB Pros&Cons history | Internally conflicted (§2 says 12 rows/first-to-7; "Why #1" and matrix #24 say 9 rows/first-to-5) |
 | `README.md` | Quick-start, structure | Had stale "12-row alignment" line (corrected) |
-| `supabase_setup.sql` | profiles/friends/zonkedb + RLS | Read-only this stage; **no SQL executed** (§3 production rules) |
+| `supabase_setup.sql` | **`zonkedb` registry only**: table DDL + unique index + RLS (anon SELECT/INSERT, *no* UPDATE/DELETE). The `profiles`/`friends` DDL is **not** in this file (verified by full read during third-eye review) | Read-only this stage; **no SQL executed** (§3 production rules). Stage 4 must audit `profiles`/`friends` schema + RLS in the live project |
 | `sw.js` | Cache `zonke-cache-v2` | Precaches `index.html` + assets; never caches `/api/`, `/socket.io/`, `/telemetry` |
 | `package.json` / lock | express/socket.io/cors | See §7 security audit |
 | `capacitor.config.json` | `webDir: "."` | Native wrapper loads the same web dir → same entry point |
@@ -87,11 +87,11 @@ Legend — **Tests now:** S = syntax · R = rules-regression · E = entry contra
 | 15 | Ranks & leaderboard | `getRankInfo()` 7-rank ladder; Supabase `profiles` leaderboard | Supabase | **R** (every threshold) | Leaderboard reads client-written XP | **Preserve** → Stage 4 |
 | 16 | Friends | `ZonkeSupabase.addFriend`, win-modal 🤝, local fallback | Supabase `friends` | — | — | **Preserve** → Stage 5 |
 | 17 | Themes & outfits | `currentTheme`/`currentOutfit`, 4×4 combos, localStorage | DOM/CSS | **E** (buttons exist in entry) | — | **Preserve** |
-| 18 | Weapons & loadouts | 10 guns, `player_loadout_change` → `opponent_loadout_change` | socket.io | I (event sanitised in malformed-payload test) | — | **Preserve** |
+| 18 | Weapons & loadouts | 10 guns, `player_loadout_change` → `opponent_loadout_change` | socket.io | I (relay + tag/char sanitisation asserted; malformed-payload crash test) | — | **Preserve** |
 | 19 | Audio & haptics | WebAudio synth `playSound`, `triggerHaptic` (Capacitor/web) | AudioContext, Capacitor | — | Lazy-init guards present | **Preserve** |
 | 20 | PWA offline | `sw.js` v2 precache + never-cache list; offline modes need no socket | Service worker | **E** (cache contract) | socket.io loaded from CDN (not cached) — offline *online-mode* degrades gracefully (`typeof io` guard) | **Preserve** |
 | 21 | Capacitor mobile | `capacitor.config.json` `webDir:"."`, `build:mobile` script | Android/Xcode SDK | — | Native build untested in Stage 0 (no SDK in CI) | **Preserve** → Stage 6 |
-| 22 | Telemetry & monitoring | client `ZonkeTelemetry` → `/api/heartbeat|events|performance|app-detail`, `/telemetry` dashboard | Express | **I** (all four surfaces) | **Unauthenticated & unrate-limited** (issue 5.3) | **Preserve** → Stage 1 |
+| 22 | Telemetry & monitoring | client `ZonkeTelemetry` → `/api/heartbeat|events|performance|app-detail`, `/telemetry` dashboard | Express | **I** (all four API surfaces: POST+GET heartbeat/events/performance, app-detail GET, dashboard GET) | **Unauthenticated & unrate-limited** (issue 5.3) | **Preserve** → Stage 1 |
 | 23 | Entry structure | `index.html` canonical vs `zonke.html` legacy (§5) | — | **E** (locked by tests) | `zonke.html` drifted (inline snapshot, double CDN include) | **Preserve both**; removal decision deferred to owner |
 | 24 | Rules documentation | `RULES.md` history + `canonical_rules.js` + `docs/CANONICAL_RULES.md` | — | **R + E** | RULES.md body still contains legacy 12-row prose (banner supersedes it; full rewrite deferred) | **Improve** (done: canonical source + banner) |
 
