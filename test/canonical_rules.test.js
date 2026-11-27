@@ -16,6 +16,7 @@ const ROOT = path.join(__dirname, '..');
 const RULES = require(path.join(ROOT, 'canonical_rules.js'));
 const gameSrc = fs.readFileSync(path.join(ROOT, 'game.js'), 'utf8');
 const serverSrc = fs.readFileSync(path.join(ROOT, 'server.js'), 'utf8');
+const engineSrc = fs.readFileSync(path.join(ROOT, 'match_engine.js'), 'utf8');
 
 function extractStages(src) {
     const m = src.match(/const STAGES = \[([\s\S]*?)\];/);
@@ -42,13 +43,15 @@ test('rules: WIN_MAJORITY in engine matches canonical rules (first to 5)', () =>
     assert.equal(RULES.winMajority, 5);
 });
 
-test('rules: server rowIdx clamp matches canonical rows (0..8, BONUS passthrough)', () => {
-    assert.equal(RULES.server.rowIdxClamp[1], RULES.totalRows - 1,
-        'canonical row clamp must match totalRows');
-    assert.match(serverSrc, /clampNumber\(cleanRowIdx, 0, 8, 0\)/,
-        'server must clamp rowIdx to 0..8 (totalRows - 1)');
-    assert.match(serverSrc, /cleanRowIdx !== 'BONUS'/,
-        'server must allow the literal BONUS rowIdx');
+test('rules: server rowIdx validation matches canonical rows (0..8 or BONUS, else rejected)', () => {
+    // Stage 2: rowIdx lives in match_engine.js and is strictly validated
+    // (out-of-range reports are rejected rather than clamped).
+    assert.match(RULES.server.rowIdxValidation, /integer/, 'canonical must document integer validation');
+    assert.match(engineSrc, /function validRowIdx/, 'engine must declare validRowIdx');
+    assert.match(engineSrc, /v === 'BONUS' \|\| \(Number\.isInteger\(v\) && v >= 0 && v < TOTAL\)/,
+        'engine must accept only BONUS or integers 0..totalRows-1');
+    assert.match(engineSrc, /!validRowIdx\(data\.rowIdx\)/,
+        'engine must reject invalid landing rowIdx reports');
 });
 
 /* --------------------------- Construction -------------------------------- */
@@ -179,10 +182,13 @@ test('server: turn lock + payload clamps enforced (anti-cheat baseline)', () => 
     // Stage 0 used `data?.x`; the clamp bounds are what matters.
     assert.match(serverSrc, /clampNumber\(data\??\.power, 0, 100, 50\)/,
         'power must clamp to 0..100');
-    assert.match(serverSrc, /clampNumber\(data\??\.wind, -2\.0, 2\.0/,
-        'wind must clamp to -2..2');
     assert.equal(RULES.server.powerClamp[1], 100);
-    assert.deepEqual(RULES.server.windClamp, [-2.0, 2.0]);
+    // Stage 2: client wind claims are no longer clamped-and-relayed — the
+    // server owns the wind and rolls from the canonical pool.
+    assert.equal(RULES.server.windOwnedByServer, true);
+    assert.match(engineSrc, /WIND_POOL\[Math\.floor\(Math\.random\(\) \* WIND_POOL\.length\)\]/,
+        'engine must roll the wind from the canonical pool');
+    assert.equal(RULES.wind.pool.length, 6);
 });
 
 test('server: reliability limits (45s grace, 15m TTL, 500 room cap, 5m host grace)', () => {
@@ -203,8 +209,10 @@ test('server: reliability limits (45s grace, 15m TTL, 500 room cap, 5m host grac
 
 /* --------------------------- Trust model --------------------------------- */
 
-test('canonical rules honestly declare the Stage 0 trust model', () => {
+test('canonical rules honestly declare the Stage 2 trust model', () => {
     assert.equal(RULES.authority,
-        'client-predicted physics; server validates turn order + payload clamps',
-        'Stage 0 must NOT claim server-authoritative physics (that is Stage 2)');
+        'server-authoritative rules engine (state/turns/wind/ammo/transitions/victory); client-predicted flick physics + animations',
+        'Stage 2: rules are server-authoritative, physics stay client-predicted — the canonical file must say exactly that');
+    assert.equal(RULES.server.windOwnedByServer, true);
+    assert.equal(RULES.server.shotIdsReplayProtected, true);
 });

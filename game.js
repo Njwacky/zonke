@@ -1454,8 +1454,10 @@ function updatePhysics(dt = 1.0) {
         // If the ball lands anywhere else on Row 5 outside the circle, it cleanly awards normal Row 5 target progression (`closestRow = 4`)!
         if (distToBonus <= 30.0) {
             ball.targetBoardRowIndex = 'BONUS';
+            ball.nearRow = closestRow; // Stage 2: sent with BONUS claims for the server's plausibility check
         } else {
             ball.targetBoardRowIndex = closestRow;
+            ball.nearRow = null;
         }
         phase = 'SNAPPING';
     }
@@ -1583,7 +1585,68 @@ let onlineRole = 1; // 1 or 2
 let onlineRoomId = null;
 let onlineReconnectToken = null; // Stage 1: server-issued per-seat reconnection credential
 let inviteHostToken = null;      // Stage 1: server-issued host reattachment credential
+let pendingShotId = null;        // Stage 2: server-issued id of the in-flight shot (replay protection)
 let opponentProfile = null;
+
+/* ==========================================================================
+   STAGE 2 — OFFICIAL STATE RECONCILE (server-authoritative rules)
+   The client keeps predicting/animating with its own physics; after every
+   accepted landing the server broadcasts `match_state` and these helpers
+   overwrite local prediction with the OFFICIAL rows/ammo/wind/turn.
+   ========================================================================== */
+function syncRowsToDom() {
+    const sides = [['p1', player1Rows], ['p2', player2Rows]];
+    for (const [prefix, rows] of sides) {
+        for (let i = 0; i < TOTAL_ROWS; i++) {
+            const box = document.getElementById(`${prefix}-box-${i}`);
+            if (!box) continue;
+            const v = rows[i];
+            box.classList.toggle('dead-soldier', v === -1);
+            box.classList.toggle('completed-soldier', v === 12);
+            for (let s = 1; s <= 12; s++) {
+                const part = box.querySelector(`.stage-${s}`);
+                if (part) part.classList.toggle('show', v !== -1 && v >= s);
+            }
+        }
+    }
+}
+
+function applyOfficialState(state) {
+    if (!state || !state.rows) return;
+    player1Rows = state.rows[1].slice(0, TOTAL_ROWS);
+    player2Rows = state.rows[2].slice(0, TOTAL_ROWS);
+    if (state.ammo) {
+        p1Sticky = state.ammo[1].sticky;
+        p1Foil = state.ammo[1].foil;
+        p2Sticky = state.ammo[2].sticky;
+        p2Foil = state.ammo[2].foil;
+    }
+    if (typeof state.wind === 'number') currentWind = state.wind;
+    if (typeof state.turnCount === 'number') turnCount = state.turnCount;
+
+    syncRowsToDom();
+    renderWindBadge();
+    updateScores();
+    updateSpecialShotButtons();
+
+    if (state.gameOver && state.winner && !gameOver) {
+        gameOver = true;
+        handleVictory(state.winner);
+        return;
+    }
+    // Adopt the official turn only when nothing is in flight — otherwise the
+    // local completeTurnSwitch() (same rules) will flip to the same value.
+    if (!gameOver && typeof state.currentTurn === 'number' &&
+        state.currentTurn !== currentPlayer && phase === 'IDLE') {
+        currentPlayer = state.currentTurn;
+        if (turnBadge) {
+            turnBadge.className = currentPlayer === 1 ? 'turn-badge p1-turn' : 'turn-badge p2-turn';
+            turnBadge.innerHTML = currentPlayer === 1 ? '<span>🔵 P1 TURN</span>' : '<span>🔴 P2 TURN</span>';
+        }
+        updateOnlineTurnLock();
+        updateAimGearUI();
+    }
+}
 
 function setupSocketClient() {
     if (typeof io !== 'undefined' && !socket) {
@@ -1745,14 +1808,18 @@ function setupSocketClient() {
                     lagBanner.innerHTML = `🟢 SIGNAL RESTORED! Friend reconnected. Match resuming synchronously!`;
                     setTimeout(() => { if (lagBanner) lagBanner.style.display = 'none'; }, 2600);
                 }
-                if (data.currentTurn !== undefined) {
-                    currentPlayer = data.currentTurn;
-                    updateTurnIndicator();
+                // Stage 2: resume with the FULL official state. (Also fixes the
+                // old updateTurnIndicator() call — that function never existed
+                // and threw here, skipping the wind restore.)
+                if (data.matchState) applyOfficialState(data.matchState);
+                if (data.currentTurn !== undefined) currentPlayer = data.currentTurn;
+                if (data.wind !== undefined) currentWind = data.wind;
+                if (turnBadge) {
+                    turnBadge.className = currentPlayer === 1 ? 'turn-badge p1-turn' : 'turn-badge p2-turn';
+                    turnBadge.innerHTML = currentPlayer === 1 ? '<span>🔵 P1 TURN</span>' : '<span>🔴 P2 TURN</span>';
                 }
-                if (data.wind !== undefined) {
-                    currentWind = data.wind;
-                    updateWind();
-                }
+                renderWindBadge();
+                updateOnlineTurnLock();
             });
             socket.on('invite_join_error', data => {
                 if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
@@ -1764,6 +1831,25 @@ function setupSocketClient() {
                 if (data && data.hostToken) inviteHostToken = data.hostToken;
                 console.log(`[Invite Room] Room ${data && data.roomCode} created with host credential`);
             });
+            // Stage 2: official id for the in-flight shot (replay protection).
+            socket.on('shot_accepted', data => {
+                if (data && data.shotId !== undefined && data.shotId !== null) {
+                    pendingShotId = data.shotId;
+                }
+            });
+            // Stage 2: the rules engine refused an action (prediction was wrong).
+            socket.on('action_rejected', data => {
+                if (!isOnlineMode || !data) return;
+                console.warn(`[Authority] rejected ${data.event || 'action'}: ${data.reason}`);
+                if (statusBox) {
+                    statusBox.textContent = `⚠️ Server rejected the action (${data.reason || 'invalid'}) — official state restored.`;
+                }
+            });
+            // Stage 2: authoritative state after every accepted landing.
+            socket.on('match_state', data => {
+                if (!isOnlineMode) return;
+                applyOfficialState(data);
+            });
         } catch (e) {
             console.log(`[Socket.io] Client offline fallback`);
         }
@@ -1772,6 +1858,8 @@ function setupSocketClient() {
 
 function startOnlineDuel(data) {
     resetGame();
+    // Stage 2: adopt the server's official opening state (rows/ammo/wind/turn).
+    if (data && data.matchState) applyOfficialState(data.matchState);
     const p1NameStr = data.opponentProfile && onlineRole === 2 ? data.opponentProfile.username : myProfile.username;
     const p2NameStr = data.opponentProfile && onlineRole === 1 ? data.opponentProfile.username : myProfile.username;
     if (p1ScoreLbl) p1ScoreLbl.textContent = `${p1NameStr} (P1): 12 Alive | 0 GOATs`;
@@ -1801,6 +1889,9 @@ function updateOnlineTurnLock() {
 function triggerFlick(isRemoteOpponent = false) {
     if (isPaused || phase !== 'IDLE' || gameOver) return;
     if (isOnlineMode && !isRemoteOpponent && currentPlayer !== onlineRole) return;
+
+    // Stage 2: a new shot invalidates the previous server-issued shot id.
+    pendingShotId = null;
 
     if (isOnlineMode && !isRemoteOpponent && socket && socket.connected) {
         socket.emit('player_flick', { power: powerVal, wind: currentWind, specialShot: activeSpecialShot });
@@ -1847,6 +1938,12 @@ function updateWind() {
         const winds = [-1.4, -0.7, 0.0, 0.0, +0.7, +1.4];
         currentWind = winds[Math.floor(Math.random() * winds.length)];
     }
+    renderWindBadge();
+}
+
+// Stage 2: badge-only render with NO turnCount advance and NO roll — used by
+// online matches where the SERVER owns wind/turnCount (match_state is truth).
+function renderWindBadge() {
     const wb = windBadge || document.getElementById('wind-badge');
     if (wb) {
         const textSpan = wb.querySelector('.wind-text') || wb;
@@ -1918,7 +2015,15 @@ function triggerBonusScreenCelebration(playerPrefix, partsAdded, killsTriggered)
    ========================================================================== */
 function handleLanding(boardRowIdx) {
     if (isOnlineMode && currentPlayer === onlineRole && socket && socket.connected) {
-        socket.emit('player_landing', { rowIdx: boardRowIdx, newWind: currentWind });
+        // Stage 2: bind the landing to the server-issued shot id (replay
+        // protection); BONUS claims carry the nearest row for the server's
+        // plausibility gate. newWind stays for old-server compat (ignored now).
+        socket.emit('player_landing', {
+            rowIdx: boardRowIdx,
+            newWind: currentWind,
+            shotId: pendingShotId,
+            near: boardRowIdx === 'BONUS' ? ball.nearRow : undefined
+        });
     }
 
     const currentRows = currentPlayer === 1 ? player1Rows : player2Rows;
@@ -2121,6 +2226,9 @@ function eliminateOpponentSoldier(opponentPrefix, soldierIdx, opponentRowsArray)
 }
 
 function checkWinCondition() {
+    // Stage 2: in online matches the SERVER computes the official victory and
+    // delivers it via match_state.winner — local prediction must not award it.
+    if (isOnlineMode) return;
     const p1Goats = player1Rows.filter(r => r === 12).length;
     const p2Goats = player2Rows.filter(r => r === 12).length;
     const p1Dead = player1Rows.filter(r => r === -1).length;
@@ -2161,7 +2269,10 @@ function completeTurnSwitch() {
     }
 
     activeSpecialShot = 'NORMAL';
-    updateWind();
+    // Stage 2: in online matches the SERVER owns wind/turnCount (advanced in
+    // match_state) — only re-render the badge here. Offline keeps rolling.
+    if (isOnlineMode) renderWindBadge();
+    else updateWind();
     updateSpecialShotButtons();
     updateOnlineTurnLock();
     updateAimGearUI();
@@ -2198,8 +2309,12 @@ function handleVictory(winner) {
     if (timerInterval) clearInterval(timerInterval);
     playSound('win');
 
-    // Career Profile XP & Coin award:
-    if (winner === currentPlayer || (isOnlineMode && winner === onlineRole)) {
+    // Career Profile XP & Coin award.
+    // Stage 2: the online winner is server-official — award ONLY to the local
+    // seat. (The old condition also matched on the LOSER's client, where
+    // currentPlayer is the shooter — the winner — awarding a false win.)
+    const iWon = isOnlineMode ? winner === onlineRole : winner === currentPlayer;
+    if (iWon) {
         myProfile.wins++;
         myProfile.xp += 150;
         myProfile.coins += 50;

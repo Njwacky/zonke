@@ -105,7 +105,8 @@ Rank ladder (`getRankInfo(xp)`):
 | Control | Value |
 |---|---|
 | Turn lock | Events from the player whose turn it is NOT are dropped (`room.currentTurn !== socket.playerRole`) |
-| Payload clamps | `power 0..100`, `wind -2..2`, `rowIdx 0..8` (`'BONUS'` passes through), strings sanitised/truncated |
+| Payload clamps | `power 0..100`, strings sanitised/truncated; `rowIdx` must be an integer `0..8` or `'BONUS'` (Stage 2: out-of-range reports are **rejected**, not clamped) |
+| Server-owned state (Stage 2) | Wind rolls from `wind.pool` every `wind.everyNTurns` switches on the server (client wind claims ignored); every flick gets a shot id and landings must reference the open pending shot (replay protection); `match_engine.js` applies construction/elimination/bonus/foil/victory officially and broadcasts `match_state` |
 | Disconnect grace | 45 s before forfeit |
 | Invite room TTL | 15 min sweep; 500-room cap; 5-min host survival grace |
 | Trust model | **Client-predicted physics**; server relays + validates turn order and payload shape. A server-authoritative shot-resolution engine is **Stage 2** of the improvement plan. |
