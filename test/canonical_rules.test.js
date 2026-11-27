@@ -174,14 +174,24 @@ test('server: turn lock + payload clamps enforced (anti-cheat baseline)', () => 
     assert.equal(RULES.server.turnLock, true);
     assert.match(serverSrc, /room\.currentTurn !== socket\.playerRole/,
         'server must reject out-of-turn events');
-    assert.match(serverSrc, /clampNumber\(data\?\.power, 0, 100, 50\)/);
-    assert.match(serverSrc, /clampNumber\(data\?\.wind, -2\.0, 2\.0/);
+    // Assert the SECURITY PROPERTY (clamps present), tolerating either access
+    // style — Stage 1 hardened payloads with isPlainObject guards + `data.x`,
+    // Stage 0 used `data?.x`; the clamp bounds are what matters.
+    assert.match(serverSrc, /clampNumber\(data\??\.power, 0, 100, 50\)/,
+        'power must clamp to 0..100');
+    assert.match(serverSrc, /clampNumber\(data\??\.wind, -2\.0, 2\.0/,
+        'wind must clamp to -2..2');
     assert.equal(RULES.server.powerClamp[1], 100);
     assert.deepEqual(RULES.server.windClamp, [-2.0, 2.0]);
 });
 
 test('server: reliability limits (45s grace, 15m TTL, 500 room cap, 5m host grace)', () => {
-    assert.match(serverSrc, /}, 45000\)/, '45s disconnect grace window');
+    // Grace is env-overridable in Stage 1 (testability) — pin the 45s DEFAULT
+    // and that the timer actually uses the configured value.
+    assert.match(serverSrc, /disconnectGraceMs: intEnv\('DISCONNECT_GRACE_MS', 45 \* 1000\)/,
+        '45s disconnect grace window must remain the default');
+    assert.match(serverSrc, /\}, ENV\.disconnectGraceMs\)/,
+        'grace timer must use the configured window');
     assert.match(serverSrc, /15 \* 60 \* 1000/, '15-minute invite room TTL');
     assert.match(serverSrc, /Object\.keys\(inviteRooms\)\.length >= 500/, '500 invite room cap');
     assert.match(serverSrc, /}, 300000\)/, '5-minute host survival grace');

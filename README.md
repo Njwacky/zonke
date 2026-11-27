@@ -31,12 +31,12 @@ npm start          # http://localhost:3000
 Requires **Node.js 18+**. `npm run dev` restarts the server on file changes
 (`node --watch`).
 
-## 🧪 Testing & quality gates (Stage 0)
+## 🧪 Testing & quality gates (Stage 0 + Stage 1)
 
 | Command | What it proves |
 |---|---|
 | `npm run check` | JavaScript **syntax** gate (`node --check`) |
-| `npm test` | **Game-rule regression** (engine ↔ `canonical_rules.js`), **entry-point contract**, and **multiplayer integration** tests over real Socket.IO connections |
+| `npm test` | **Game-rule regression** (engine ↔ `canonical_rules.js`), **entry-point contract**, **multiplayer integration**, and **Stage 1 security** tests (static allowlist, telemetry keys/rate limits, socket origin/handshake/payload caps, reconnect tokens) over real spawned servers |
 | `npm audit --audit-level=high` | **Dependency security** audit |
 
 All three run automatically on every push/PR via GitHub Actions
@@ -47,6 +47,34 @@ behaviour suite is `npm test`.
 [`docs/CANONICAL_RULES.md`](docs/CANONICAL_RULES.md) — **9 rows, 12 stages per
 soldier, first-to-5 GOATs wins.** Parts of `RULES.md` still describe the older
 12-row/first-to-7 design and are superseded by that document.
+
+## 🔐 Security (Stage 1) & configuration
+
+The server is hardened by default — **no environment variables are required**
+to keep everything working (see
+[`docs/STAGE1_SECURITY.md`](docs/STAGE1_SECURITY.md) for the full threat model,
+controls and migration plan):
+
+- **Socket.IO**: origin allowlist, handshake identity (`{client:'zonke-web',v:1}`),
+  8 KB payload cap, per-event rate limits, seat-occupancy checks, expiring
+  **per-seat reconnect tokens** (no seat takeover; per-role disconnect timers).
+- **Static files**: only the game assets are served (`/`, `index.html`,
+  `style.css`, `game.js`, `sw.js`, `manifest.json`, `icon.svg`, `zonke.html`).
+  Server code, SQL, docs and config return 404.
+- **Telemetry**: per-IP rate limits, strict field validation, generic errors.
+  Optional shared keys via environment variables (unset = open, rate-limited):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ALLOWED_ORIGINS` | built-in list (localhost, Capacitor, Netlify, Render, `*.e2b.app`) | Comma-separated origin allowlist; `*` restores wildcard |
+| `REQUIRE_HANDSHAKE` | off | Set to `1` to reject clients without a valid handshake |
+| `TELEMETRY_WRITE_KEY` | unset | If set, telemetry POSTs must send it (`x-zonke-telemetry-key` or `Bearer`) |
+| `TELEMETRY_DASHBOARD_KEY` | unset | If set, gates `/telemetry`, `/api/app-detail/`, `/api/events/` (`?key=` works in the browser) |
+| `RECONNECT_TOKEN_TTL_MS` | `900000` (15 min) | Lifetime of per-seat reconnect credentials |
+| `DISCONNECT_GRACE_MS` | `45000` (45 s) | Forfeit window after a disconnect |
+
+**Deploy order matters:** ship the updated `game.js` to Netlify *before*
+rolling this server — see the migration plan in `docs/STAGE1_SECURITY.md`.
 
 ## 🗂️ Project Structure
 

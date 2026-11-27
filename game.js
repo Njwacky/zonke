@@ -579,11 +579,21 @@ const ZonkeTelemetry = {
         this.setupPerformanceObservers();
     },
 
+    // Stage 1 (5.3): telemetry headers — attach the owner-configured write key
+    // when present (window.ZONKE_TELEMETRY_KEY), plain JSON otherwise.
+    telemetryHeaders: function() {
+        const headers = { "Content-Type": "application/json" };
+        if (typeof window !== 'undefined' && window.ZONKE_TELEMETRY_KEY) {
+            headers["x-zonke-telemetry-key"] = window.ZONKE_TELEMETRY_KEY;
+        }
+        return headers;
+    },
+
     sendHeartbeat: async function() {
         try {
             await fetch(`${ZonkeTelemetry.serverUrl}/api/heartbeat/`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: ZonkeTelemetry.telemetryHeaders(),
                 body: JSON.stringify({
                     appId: ZonkeTelemetry.appId,
                     status: navigator.onLine ? "online" : "offline",
@@ -603,7 +613,7 @@ const ZonkeTelemetry = {
         try {
             await fetch(`${ZonkeTelemetry.serverUrl}/api/events/`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: ZonkeTelemetry.telemetryHeaders(),
                 body: JSON.stringify({
                     type: type,
                     message: message,
@@ -619,7 +629,7 @@ const ZonkeTelemetry = {
         try {
             await fetch(`${ZonkeTelemetry.serverUrl}/api/performance/`, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: ZonkeTelemetry.telemetryHeaders(),
                 body: JSON.stringify({
                     lcp: ZonkeTelemetry.metrics.lcp,
                     inp: ZonkeTelemetry.metrics.inp,
@@ -1571,13 +1581,20 @@ let socket = null;
 let isOnlineMode = false;
 let onlineRole = 1; // 1 or 2
 let onlineRoomId = null;
+let onlineReconnectToken = null; // Stage 1: server-issued per-seat reconnection credential
+let inviteHostToken = null;      // Stage 1: server-issued host reattachment credential
 let opponentProfile = null;
 
 function setupSocketClient() {
     if (typeof io !== 'undefined' && !socket) {
         try {
             const sockUrl = typeof SERVER_API_URL !== 'undefined' ? SERVER_API_URL : 'http://localhost:3000';
-            socket = io(sockUrl, { reconnectionAttempts: 3, transports: ['websocket', 'polling'] });
+            // Stage 1 (5.1): declare client identity in the handshake auth payload.
+            socket = io(sockUrl, {
+                reconnectionAttempts: 3,
+                transports: ['websocket', 'polling'],
+                auth: { client: 'zonke-web', v: 1 }
+            });
             socket.on('connect', () => {
                 const badge = document.getElementById('online-mode-badge');
                 if (badge) badge.innerHTML = `<span>🟢 ONLINE READY</span>`;
@@ -1585,7 +1602,8 @@ function setupSocketClient() {
                     console.log(`[Low Network Reconnect] Automatically rejoining match ${onlineRoomId}...`);
                     socket.emit('reconnect_to_match', {
                         roomId: onlineRoomId,
-                        role: onlineRole,
+                        role: onlineRole, // kept for old-server compat during client-first deploy; new servers derive role from token
+                        token: onlineReconnectToken, // Stage 1 (5.4): server-issued seat credential
                         name: myProfile.username
                     });
                 }
@@ -1623,6 +1641,8 @@ function setupSocketClient() {
                 if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
                 onlineRole = data.role;
                 onlineRoomId = data.roomId;
+                // Stage 1 (5.4): keep the server-issued seat credential for later reconnects.
+                if (data.reconnectToken) onlineReconnectToken = data.reconnectToken;
                 const modal = document.getElementById('online-waiting-modal');
                 if (modal) modal.classList.remove('active');
                 const inviteModal = document.getElementById('invite-accept-modal');
@@ -1738,6 +1758,11 @@ function setupSocketClient() {
                 if (window._acceptWatchdog) clearInterval(window._acceptWatchdog);
                 const statusEl = document.getElementById('invite-accept-status') || document.getElementById('online-status-msg');
                 if (statusEl) statusEl.innerHTML = `<span style="color: #ea4335;">❌ ${data.message || 'Room not found or host disconnected. Double-check the 4-digit code or ask your friend to create a fresh room!'}</span>`;
+            });
+            // Stage 1 (5.5): capture the host reattachment credential issued by the server.
+            socket.on('invite_room_created', data => {
+                if (data && data.hostToken) inviteHostToken = data.hostToken;
+                console.log(`[Invite Room] Room ${data && data.roomCode} created with host credential`);
             });
         } catch (e) {
             console.log(`[Socket.io] Client offline fallback`);
@@ -2442,7 +2467,7 @@ function setupEventListeners() {
             if (window._inviteMaintainInterval) clearInterval(window._inviteMaintainInterval);
             window._inviteMaintainInterval = setInterval(() => {
                 if (socket && socket.connected && onlineRoomId && isOnlineMode && onlineWaitingModal && onlineWaitingModal.classList.contains('active')) {
-                    socket.emit('maintain_invite_room', { roomCode: onlineRoomId, name: myProfile.username });
+                    socket.emit('maintain_invite_room', { roomCode: onlineRoomId, name: myProfile.username, hostToken: inviteHostToken });
                 }
             }, 2500);
 
