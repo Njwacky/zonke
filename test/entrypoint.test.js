@@ -50,8 +50,12 @@ test('entrypoint: zonke.html is preserved but is NOT wired as an entry point', (
         'legacy zonke.html must be preserved (no feature/file removal in Stage 0)');
     assert.ok(!JSON.stringify(manifest).includes('zonke.html'),
         'zonke.html must not become the PWA entry without an approved decision');
-    assert.ok(!readme.includes('zonke.html](') || readme.includes('legacy'),
-        'README must describe zonke.html as legacy if it mentions it');
+    // If README mentions zonke.html at all, it must explicitly mark it legacy
+    // (tightened during Stage 0 recheck — the previous check was near-tautological).
+    if (readme.includes('zonke.html')) {
+        assert.match(readme, /legacy/i,
+            'README must describe zonke.html as legacy if it mentions it');
+    }
 });
 
 test('entrypoint: README quick-start points at index.html and canonical rules', () => {

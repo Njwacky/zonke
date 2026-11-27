@@ -47,7 +47,7 @@
 
 | File | Size / shape | Verdict |
 |---|---|---|
-| `game.js` | 2,906 lines · 69 top-level functions | Client engine: physics, rules, AI, audio, socket client, Supabase client |
+| `game.js` | 2,906 lines · 62 top-level `function` declarations | Client engine: physics, rules, AI, audio, socket client, Supabase client |
 | `server.js` | 648 lines | Express + Socket.IO relay/rooms + telemetry API (in-memory) |
 | `index.html` | 563 lines · zero inline `<style>/<script>` | **Canonical entry point** (§5) |
 | `zonke.html` | 5,385 lines · inline `<style>` + inline `<script>` + **duplicate** socket.io CDN tags (L2584–2585) | Legacy self-contained snapshot — preserved, not wired to anything |
@@ -71,7 +71,7 @@ Legend — **Tests now:** S = syntax · R = rules-regression · E = entry contra
 | # | Feature | Where / how it works | Dependencies | Tests now | Known problems | Disposition |
 |---|---|---|---|---|---|---|
 | 1 | Pass & Play (local, default) | `game.js` turn state machine, `completeTurnSwitch()` | DOM only | R (turn/victory rules) | — | **Preserve** |
-| 2 | Sipho AI opponent | `isAiBotMode`, auto-flick after 1.3 s, power `rand(32..97)` | DOM | — | `aiBotDifficulty` declared but **never read** (EASY/HARD inert) | **Preserve**; improve later (behaviour change needs approval) |
+| 2 | Sipho AI opponent | `isAiBotMode`, auto-flick after 1.3 s, power `rand(32..96)` | DOM | — | `aiBotDifficulty` declared but **never read** (EASY/HARD inert) | **Preserve**; improve later (behaviour change needs approval) |
 | 3 | Online matchmaking | server `find_match` ↔ single global `waitingSocket` → `match_found` roles 1/2 | socket.io | **I** (pairing, clamps, turn-lock) | No queue cancellation; in-memory → single instance only | **Preserve** → Stage 3 |
 | 4 | Private invite rooms | `create/join_invite_room`, `DUEL-####`, `?room=` links, host re-attach | socket.io | **I** (lifecycle + not-found error) | TTL/DoS caps present (15 min, 500); identity not cryptographically bound | **Preserve** → Stage 1/3 hardening |
 | 5 | Player reconnection | `reconnect_to_match`, 45 s grace, `opponent_network_lag` | socket.io | — (manual) | **Role claimed by client** (security issue 5.4) | **Preserve** → Stage 1 |
