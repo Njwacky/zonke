@@ -19,6 +19,11 @@ const path = require('path');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
 const cors = require('cors');
+// Stage 2: official server-authoritative rules engine (pure module).
+const {
+    createMatchState, validateFlick, beginShot,
+    validateLanding, resolveLanding, snapshot
+} = require('./match_engine');
 
 /* ==========================================================================
    SECURITY CONFIGURATION (env-overridable; defaults preserve existing
@@ -584,12 +589,14 @@ function tokenMatches(provided, expected) {
 // Single constructor for live match rooms (both quick-match and invite paths)
 // so timers/tokens can never be forgotten in one of them.
 function createMatchRoom(id, p1, p2, p1Profile, p2Profile) {
+    const match = createMatchState(); // Stage 2: official rows/ammo/wind/turn-count/shot state
     return {
         id,
         p1, p2,
         p1Profile, p2Profile,
         currentTurn: 1,
-        wind: 0.0,
+        wind: match.wind, // mirrored from the engine (reconnect payload compat)
+        match,            // Stage 2: server-authoritative rules state
         disconnectTimers: { 1: null, 2: null },   // 5.4: per-role grace timers
         reconnectTokens: {                        // 5.4: per-seat credentials
             1: issueReconnectToken(1),
@@ -676,7 +683,8 @@ io.on('connection', (socket) => {
                 myProfile: p1Prof,
                 opponentProfile: p2Prof,
                 wind: 0.0,
-                reconnectToken: room.reconnectTokens[1].token
+                reconnectToken: room.reconnectTokens[1].token,
+                matchState: snapshot(room.match, room.currentTurn) // Stage 2: official opening state
             });
 
             socket.emit('match_found', {
@@ -685,7 +693,8 @@ io.on('connection', (socket) => {
                 myProfile: p2Prof,
                 opponentProfile: p1Prof,
                 wind: 0.0,
-                reconnectToken: room.reconnectTokens[2].token
+                reconnectToken: room.reconnectTokens[2].token,
+                matchState: snapshot(room.match, room.currentTurn) // Stage 2: official opening state
             });
 
             waitingSocket = null;
@@ -710,25 +719,39 @@ io.on('connection', (socket) => {
             console.warn(`[Security] player_flick from non-occupant ${socket.id} in ${roomId} rejected.`);
             return;
         }
-        // Turn Anti-Cheat check: Verify it is genuinely this player's turn (`room.currentTurn === socket.playerRole`)
+        // Stage 2: official turn lock (server-controlled turns).
         if (room.currentTurn !== socket.playerRole) {
             console.warn(`[Anti-Cheat Violation] Player ${socket.playerRole} inside ${roomId} attempted to flick during Player ${room.currentTurn}'s turn! Rejected.`);
+            socket.emit('action_rejected', { event: 'player_flick', reason: 'not_your_turn' });
             return;
         }
         if (!isPlainObject(data)) {
             console.warn(`[Security] player_flick rejected: malformed payload from ${socket.id}`);
+            socket.emit('action_rejected', { event: 'player_flick', reason: 'malformed_payload' });
+            return;
+        }
+
+        // Stage 2: shot inventory (special ammo) + duplicate/in-flight validation
+        // BEFORE any state changes. Client wind claims are ignored (server-owned).
+        const check = validateFlick(room.match, socket.playerRole, data);
+        if (!check.ok) {
+            console.warn(`[Authority] player_flick rejected (${check.reason}) from ${socket.id} in ${roomId}`);
+            socket.emit('action_rejected', { event: 'player_flick', reason: check.reason });
             return;
         }
 
         const cleanPower = clampNumber(data.power, 0, 100, 50);
-        const cleanWind = clampNumber(data.wind, -2.0, 2.0, 0.0);
-        const cleanShot = (data.specialShot === 'STICKY' || data.specialShot === 'FOIL') ? data.specialShot : 'NORMAL';
+        const shot = beginShot(room.match, socket.playerRole, cleanPower, check.special);
+
+        // The shooter needs the official shot id for a replay-proof landing.
+        socket.emit('shot_accepted', { shotId: shot.id, wind: room.match.wind });
 
         socket.to(roomId).emit('opponent_flick', {
             power: cleanPower,
-            wind: cleanWind,
-            specialShot: cleanShot,
-            playerRole: socket.playerRole
+            wind: room.match.wind, // Stage 2: wind is server-owned
+            specialShot: check.special,
+            playerRole: socket.playerRole,
+            shotId: shot.id
         });
     });
 
@@ -759,30 +782,49 @@ io.on('connection', (socket) => {
             console.warn(`[Security] player_landing from non-occupant ${socket.id} in ${roomId} rejected.`);
             return;
         }
-        // Turn Anti-Cheat check: Verify only active turn player reports landing!
+        // Stage 2: official turn lock.
         if (room.currentTurn !== socket.playerRole) {
             console.warn(`[Anti-Cheat Violation] Player ${socket.playerRole} reported landing out of turn! Rejected.`);
+            socket.emit('action_rejected', { event: 'player_landing', reason: 'not_your_turn' });
             return;
         }
         if (!isPlainObject(data)) {
             console.warn(`[Security] player_landing rejected: malformed payload from ${socket.id}`);
+            socket.emit('action_rejected', { event: 'player_landing', reason: 'malformed_payload' });
             return;
         }
 
-        let cleanRowIdx = data.rowIdx;
-        if (cleanRowIdx !== 'BONUS') {
-            cleanRowIdx = clampNumber(cleanRowIdx, 0, 8, 0);
+        // Stage 2: landing-report validation against the open pending shot —
+        // duplicate/replayed landings, impossible rows and implausible bonus
+        // claims are rejected WITHOUT touching state; the shooter is resynced.
+        const check = validateLanding(room.match, socket.playerRole, data);
+        if (!check.ok) {
+            console.warn(`[Authority] player_landing rejected (${check.reason}) from ${socket.id} in ${roomId}`);
+            socket.emit('action_rejected', { event: 'player_landing', reason: check.reason });
+            socket.emit('match_state', snapshot(room.match, room.currentTurn));
+            return;
         }
-        const cleanWind = clampNumber(data.newWind, -2.0, 2.0, room.wind || 0.0);
-        room.wind = cleanWind;
-        room.currentTurn = room.currentTurn === 1 ? 2 : 1;
 
+        const cleanRowIdx = data.rowIdx;
+        const resolvedShotId = room.match.pendingShot.id;
+        // Official rules transition: construction, shoot-first kill, centre
+        // bonus, tinfoil revive, ammo consumption, wind roll, victory.
+        const result = resolveLanding(room.match, socket.playerRole, cleanRowIdx);
+        room.currentTurn = result.nextTurn;
+        room.wind = room.match.wind;
+
+        // Compat relay (old clients animate from this) — carries server truth.
         socket.to(roomId).emit('sync_landing', {
             rowIdx: cleanRowIdx,
             playerRole: socket.playerRole,
             nextTurn: room.currentTurn,
-            newWind: cleanWind
+            newWind: room.wind,
+            shotId: resolvedShotId,
+            events: result.events
         });
+
+        // Stage 2: the OFFICIAL state — both clients reconcile to this.
+        io.to(roomId).emit('match_state', snapshot(room.match, room.currentTurn));
     });
 
 
@@ -923,7 +965,8 @@ io.on('connection', (socket) => {
             myProfile: p1Prof,
             opponentProfile: profile,
             wind: 0.0,
-            reconnectToken: room.reconnectTokens[1].token
+            reconnectToken: room.reconnectTokens[1].token,
+            matchState: snapshot(room.match, room.currentTurn) // Stage 2: official opening state
         };
         const matchDataP2 = {
             roomId: roomCode,
@@ -931,7 +974,8 @@ io.on('connection', (socket) => {
             myProfile: profile,
             opponentProfile: p1Prof,
             wind: 0.0,
-            reconnectToken: room.reconnectTokens[2].token
+            reconnectToken: room.reconnectTokens[2].token,
+            matchState: snapshot(room.match, room.currentTurn) // Stage 2: official opening state
         };
 
         if (hostSocket && typeof hostSocket.emit === 'function') {
@@ -1010,6 +1054,7 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('match_resumed_from_lag', {
             currentTurn: room.currentTurn,
             wind: room.wind || 0.0,
+            matchState: snapshot(room.match, room.currentTurn), // Stage 2: full official state on resume
             message: "🟢 Cellular / network signal restored! Match resuming synchronously."
         });
     });

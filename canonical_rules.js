@@ -100,14 +100,21 @@ const ZONKE_RULES = Object.freeze({
         { minXp: 0, title: "Street Novice" }
     ],
 
-    // --- Multiplayer server enforcement (server.js) ------------------------
+    // --- Multiplayer server enforcement (server.js + match_engine.js) ------
     server: {
         // Payload clamps applied to every incoming game event:
         powerClamp: [0, 100],
-        windClamp: [-2.0, 2.0],
-        rowIdxClamp: [0, 8], // must equal [0, totalRows - 1]; 'BONUS' passes through
+        // Stage 2: rowIdx must be an integer 0..totalRows-1 or the literal
+        // 'BONUS' — out-of-range landing reports are REJECTED (not clamped).
+        rowIdxValidation: "integer 0..totalRows-1 or 'BONUS', else rejected",
         // Turn anti-cheat: an event from the player whose turn it is NOT is dropped.
         turnLock: true,
+        // Stage 2: the server owns the wind (rolls from wind.pool every
+        // wind.everyNTurns turn switches); client wind claims are ignored.
+        windOwnedByServer: true,
+        // Stage 2: every flick gets a server-issued shot id; landings must
+        // reference the open pending shot (duplicate/replay protection).
+        shotIdsReplayProtected: true,
         // Reliability / abuse limits:
         disconnectGraceSeconds: 45,
         inviteRoomTtlMinutes: 15,
@@ -116,11 +123,13 @@ const ZONKE_RULES = Object.freeze({
     },
 
     // --- Trust model (honest current-state declaration) --------------------
-    // Stage 0 status: physics and landing results are CLIENT-side; the server
-    // relays events, enforces turn order and clamps payloads, but does NOT
-    // yet re-simulate shots. A server-authoritative rules engine arrives in
-    // Stage 2 of the improvement plan.
-    authority: "client-predicted physics; server validates turn order + payload clamps"
+    // Stage 2 status: the server runs a deterministic rules engine
+    // (match_engine.js) that owns match state, turns, wind, shot inventory,
+    // construction/elimination, bonus/foil interactions and official victory.
+    // Flick PHYSICS and animations remain client-side for prediction and UX;
+    // the server validates shot parameters and applies the official transition
+    // to every accepted landing, and clients reconcile to match_state.
+    authority: "server-authoritative rules engine (state/turns/wind/ammo/transitions/victory); client-predicted flick physics + animations"
 });
 
 // Load in Node (tests) and in a browser via a plain <script> tag if desired.

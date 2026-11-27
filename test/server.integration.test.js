@@ -229,9 +229,12 @@ test('integration: payload clamping — power/wind/specialShot sanitised in rela
     const flick = await relayed;
 
     assert.equal(flick.power, 100, 'power must clamp to 0..100');
-    assert.equal(flick.wind, 2.0, 'wind must clamp to -2..2');
+    // Stage 2: the client's wind claim is IGNORED — the relay carries the
+    // server-owned wind (0.0 at match start; first roll is turn switch 3).
+    assert.equal(flick.wind, 0.0, 'wind must be server-owned, not the client claim');
     assert.equal(flick.specialShot, 'NORMAL', 'unknown specialShot must fall back to NORMAL');
     assert.equal(flick.playerRole, 1);
+    assert.ok(flick.shotId, 'opponent_flick must carry the official shot id');
 });
 
 test('integration: loadout change relays with tag/character sanitisation', async () => {
@@ -277,7 +280,7 @@ test('integration: turn anti-cheat — out-of-turn flick is dropped', async () =
     assert.equal(flick.playerRole, 1);
 });
 
-test('integration: player_landing flips the turn and relays sync_landing', async () => {
+test('integration: player_landing flips the turn, relays sync_landing, broadcasts match_state', async () => {
     const a = await connect();
     const b = await connect();
 
@@ -288,18 +291,32 @@ test('integration: player_landing flips the turn and relays sync_landing', async
     b.emit('find_match', { name: 'Land_P2' });
     await Promise.all([aFound, bFound]);
 
+    // Stage 2: a landing must be bound to an open shot (flick first).
+    const acc = waitFor(a, 'shot_accepted');
     const synced = waitFor(b, 'sync_landing');
-    a.emit('player_landing', { rowIdx: 3, newWind: 1.4 });
+    const stA = waitFor(a, 'match_state');
+    const stB = waitFor(b, 'match_state');
+    a.emit('player_flick', { power: 50, wind: 99 }); // client wind claim is ignored
+    const { shotId } = await acc;
+    assert.ok(shotId, 'shooter must receive the official shot id');
+    a.emit('player_landing', { rowIdx: 3, newWind: 1.4, shotId });
     const landing = await synced;
 
     assert.equal(landing.rowIdx, 3);
     assert.equal(landing.playerRole, 1);
     assert.equal(landing.nextTurn, 2, 'landing must hand the turn to Player 2');
-    assert.equal(landing.newWind, 1.4);
+    assert.equal(landing.newWind, 0.0, 'wind is server-owned (first roll at switch 3)');
+    const [s1, s2] = await Promise.all([stA, stB]);
+    assert.equal(s1.rows[1][3], 1, 'official state: P1 row idx3 stage 1');
+    assert.equal(s2.rows[1][3], 1, 'both seats receive the same official state');
+    assert.equal(s1.currentTurn, 2);
 
-    // Now it is P2's turn: a landing from P2 is legal and flips back to P1.
+    // Now it is P2's turn: flick + land is legal and flips back to P1.
+    const acc2 = waitFor(b, 'shot_accepted');
     const synced2 = waitFor(a, 'sync_landing');
-    b.emit('player_landing', { rowIdx: 5 });
+    b.emit('player_flick', { power: 40 });
+    const { shotId: shotId2 } = await acc2;
+    b.emit('player_landing', { rowIdx: 5, shotId: shotId2 });
     const landing2 = await synced2;
     assert.equal(landing2.nextTurn, 1);
 

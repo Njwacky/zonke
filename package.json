@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check game.js && node --check sw.js && node --check canonical_rules.js",
+    "check": "node --check server.js && node --check game.js && node --check sw.js && node --check canonical_rules.js && node --check match_engine.js",
     "test": "node --test",
     "build:mobile": "npx cap sync && npx cap open android"
   },

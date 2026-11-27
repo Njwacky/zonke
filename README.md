@@ -31,12 +31,12 @@ npm start          # http://localhost:3000
 Requires **Node.js 18+**. `npm run dev` restarts the server on file changes
 (`node --watch`).
 
-## 🧪 Testing & quality gates (Stage 0 + Stage 1)
+## 🧪 Testing & quality gates (Stage 0 + Stage 1 + Stage 2)
 
 | Command | What it proves |
 |---|---|
-| `npm run check` | JavaScript **syntax** gate (`node --check`) |
-| `npm test` | **Game-rule regression** (engine ↔ `canonical_rules.js`), **entry-point contract**, **multiplayer integration**, and **Stage 1 security** tests (static allowlist, telemetry keys/rate limits, socket origin/handshake/payload caps, reconnect tokens) over real spawned servers |
+| `npm run check` | JavaScript **syntax** gate (`node --check`, incl. `match_engine.js`) |
+| `npm test` | **Game-rule regression** (engine ↔ `canonical_rules.js`), **entry-point contract**, **multiplayer integration**, **Stage 1 security** tests (static allowlist, telemetry keys/rate limits, socket origin/handshake/payload caps, reconnect tokens), and **Stage 2 server-authority** tests (shot validation, replay/duplicate rejection, official transitions, wind/ammo ownership, official victory) over real spawned servers |
 | `npm audit --audit-level=high` | **Dependency security** audit |
 
 All three run automatically on every push/PR via GitHub Actions
@@ -73,8 +73,15 @@ controls and migration plan):
 | `RECONNECT_TOKEN_TTL_MS` | `900000` (15 min) | Lifetime of per-seat reconnect credentials |
 | `DISCONNECT_GRACE_MS` | `45000` (45 s) | Forfeit window after a disconnect |
 
+**Server authority (Stage 2):** online matches run on a deterministic rules
+engine (`match_engine.js`) — the server owns match state, turns, wind, ammo,
+soldier transitions and the official victory; the client keeps its flick
+physics and animations for prediction and reconciles to `match_state`.
+Details, trust model and limitations: [`docs/STAGE2_AUTHORITY.md`](docs/STAGE2_AUTHORITY.md).
+
 **Deploy order matters:** ship the updated `game.js` to Netlify *before*
-rolling this server — see the migration plan in `docs/STAGE1_SECURITY.md`.
+rolling this server — see the migration plans in `docs/STAGE1_SECURITY.md`
+and `docs/STAGE2_AUTHORITY.md`.
 
 ## 🗂️ Project Structure
 
