@@ -24,21 +24,41 @@ npm install
 npm start          # http://localhost:3000
 ```
 
-- Game: <http://localhost:3000/index.html>
+- Game: <http://localhost:3000/index.html> ← **canonical entry point**
 - Live telemetry dashboard: <http://localhost:3000/telemetry>
 - API: `/api/heartbeat/`, `/api/events/`, `/api/performance/`, `/api/app-detail/`
 
-Requires **Node.js 18+**. `npm run check` syntax-checks all JS files;
-`npm run dev` restarts the server on file changes (`node --watch`).
+Requires **Node.js 18+**. `npm run dev` restarts the server on file changes
+(`node --watch`).
+
+## 🧪 Testing & quality gates (Stage 0)
+
+| Command | What it proves |
+|---|---|
+| `npm run check` | JavaScript **syntax** gate (`node --check`) |
+| `npm test` | **Game-rule regression** (engine ↔ `canonical_rules.js`), **entry-point contract**, and **multiplayer integration** tests over real Socket.IO connections |
+| `npm audit --audit-level=high` | **Dependency security** audit |
+
+All three run automatically on every push/PR via GitHub Actions
+(`.github/workflows/ci.yml`). A syntax check is *not* a gameplay test — the
+behaviour suite is `npm test`.
+
+**Canonical rules:** [`canonical_rules.js`](canonical_rules.js) +
+[`docs/CANONICAL_RULES.md`](docs/CANONICAL_RULES.md) — **9 rows, 12 stages per
+soldier, first-to-5 GOATs wins.** Parts of `RULES.md` still describe the older
+12-row/first-to-7 design and are superseded by that document.
 
 ## 🗂️ Project Structure
 
 | File | Purpose |
 |---|---|
-| `index.html` | Game UI shell |
-| `style.css` | Themes, outfits, 12-row alignment |
+| `index.html` | Game UI shell — **the canonical entry point** (served at `/`, PWA `start_url`, precached by `sw.js`) |
+| `zonke.html` | Legacy standalone snapshot (inline CSS/JS) — **preserved but not an entry point** |
+| `style.css` | Themes, outfits, 9-row alignment |
 | `game.js` | Game engine: physics, audio synth, AI, Socket.io client |
 | `server.js` | Express + Socket.io server & telemetry API |
+| `canonical_rules.js` | Single source of truth for gameplay rules (see `docs/CANONICAL_RULES.md`) |
+| `test/` | Stage 0 test suite (`npm test`) |
 | `sw.js` | Service worker (PWA offline cache) |
 | `manifest.json` / `icon.svg` | PWA manifest & icon |
 | `capacitor.config.json` | Native mobile wrapper config |
@@ -71,5 +91,8 @@ The browser talks to Supabase **directly via PostgREST** with the publishable an
 | `friends` | Friends list |
 | `zonkedb` | Player registry — one row per unique player (`id`, `created_at`, `player01 = username`). Written automatically on app open / profile save / victory sync. |
 
-Setup SQL (incl. Row Level Security policies) is in [`supabase_setup.sql`](supabase_setup.sql):
-Supabase Dashboard → **SQL Editor** → paste → **Run**.
+Setup SQL for the **`zonkedb`** table (incl. Row Level Security policies) is in
+[`supabase_setup.sql`](supabase_setup.sql): Supabase Dashboard → **SQL Editor** →
+paste → **Run**. That file creates *only* `zonkedb` — the `profiles` and `friends`
+tables are not defined there; verify their schema and RLS policies directly in the
+dashboard (scheduled for audit in Stage 4).

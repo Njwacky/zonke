@@ -1,5 +1,14 @@
-﻿# 🇿🇦 ZONKE – The Kasi Paper Soldier
+# 🇿🇦 ZONKE – The Kasi Paper Soldier
 ## Official Game Rules, The 4 Whys (`4whys`), & Claude's Deep Re-Check Protocol (`Pros & Cons`)
+
+> **⚠️ STAGE 0 CANONICAL RULES NOTICE:** The playable, code-verified rules are
+> **9 rows · 12 stages per soldier · first-to-5 GOATs wins**, defined once in
+> [`canonical_rules.js`](canonical_rules.js) and documented in
+> [`docs/CANONICAL_RULES.md`](docs/CANONICAL_RULES.md) (enforced by
+> `npm test`). Sections below that still say **"12-Row Battlefield"** or
+> **"First to 7 GOATs"** describe an earlier design iteration and are
+> **superseded** by that document. No gameplay rule was changed in Stage 0 —
+> only documentation was reconciled with the engine.
 
 ---
 
