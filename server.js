@@ -46,21 +46,30 @@ function parseOriginList(raw) {
 
 const ORIGINS = parseOriginList(process.env.ALLOWED_ORIGINS);
 
+// Compile each entry once at startup:
+//   - entries containing '*' become anchored regexes, so BOTH bare wildcards
+//     ('*.example.com') and scheme-prefixed wildcards ('https://*.e2b.app')
+//     work (the old startsWith('*.') check silently never matched the latter);
+//   - entries with a scheme must match the full origin (scheme-sensitive);
+//   - scheme-less entries ('localhost:3000') match the scheme-less origin.
+const ORIGIN_MATCHERS = ORIGINS.entries.map((entry) => {
+    if (entry.includes('*')) {
+        const m = entry.match(/^([a-z][a-z0-9+.-]*:\/\/)?(.*)$/i);
+        const scheme = (m[1] || '').replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+        const host = m[2].replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]+');
+        // Optional explicit port: browsers omit default ports, but a preview on
+        // :8443 must still match a wildcard host entry.
+        const re = new RegExp('^' + scheme + host + '(:[0-9]+)?$');
+        return (origin) => re.test(origin);
+    }
+    if (entry.includes('://')) return (origin) => origin === entry;
+    return (origin) => origin.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '') === entry;
+});
+
 function originAllowed(origin) {
     if (ORIGINS.allowAll) return true;
     if (!origin || typeof origin !== 'string') return true; // non-browser clients (tests, curl, native)
-    let host = origin;
-    try { host = new URL(origin).host; } catch { /* keep raw */ }
-    const schemeless = origin.replace(/^https?:\/\//i, '');
-    return ORIGINS.entries.some((entry) => {
-        if (entry === origin || entry === schemeless) return true;
-        if (entry.startsWith('*.')) {
-            const suffix = entry.slice(1);            // '.example.com'
-            const bare = entry.slice(2);              // 'example.com'
-            return host === bare || host.endsWith(suffix) || schemeless.endsWith(suffix);
-        }
-        return false;
-    });
+    return ORIGIN_MATCHERS.some((match) => match(origin));
 }
 
 function intEnv(name, fallback) {

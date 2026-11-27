@@ -38,8 +38,9 @@
 - Invite hosts get a `hostToken` in `invite_room_created`; `maintain_invite_room` requires it — knowing a room code alone no longer lets a third socket steal the host seat (5.5).
 
 ## Test evidence (§5.5)
-- **New `test/security.test.js` — 23 tests**, each spawning a real server on a dedicated port: static matrix (18 blocked + 8 allowed paths), generic-404 body, telemetry validation/keys/rate-limit/malformed-JSON/413/CORS, socket origin (default + env-replaced list), handshake (both modes), 8 KB payload drop + survival, malformed `find_match`, rate-limit event, duplicate in-match rejection, token accept/reject/expiry, **per-role timer regression**, room-lifetime token bound, host-token reattach matrix, plus source-contract guards.
-- **Offline gameplay functional** (§5.5): all pre-existing suites stay green against the hardened server — `40/40 → 63/63` total (`node --check` ×4, canonical rules 18, entrypoint 7, integration 10, security 23 + guards).
+- **New `test/security.test.js` — 24 tests**, each spawning a real server on a dedicated port: static matrix (18 blocked + 8 allowed paths), generic-404 body, telemetry validation/keys/rate-limit/malformed-JSON/413/CORS, socket origin (default list incl. `*.e2b.app` wildcard, suffix-spoof rejection, env-replaced list), handshake (both modes), 8 KB payload drop + survival (hard timeout so a regression fails fast), malformed `find_match`, rate-limit event, duplicate in-match rejection, token accept/reject/expiry (both quick-match and invite paths), **per-role timer regression**, room-lifetime token bound, host-token reattach matrix, plus source-contract guards.
+- **Offline gameplay functional** (§5.5): all pre-existing suites stay green against the hardened server — `40/40 → 64/64` total (`node --check` ×4, canonical rules 18, entrypoint 7, integration 10, security 24 + guards).
+- **Mutation evidence (recheck turn):** reintroducing the original wildcard defect (scheme-prefixed `*.e2b.app` entries never matching) makes exactly 2 security tests fail; restoring the fix returns 64/64.
 - Live smoke: `/server.js` `/package.json` traversal → 404; `/` `/game.js` → 200; telemetry 200/201; evil `Origin` gets no CORS header; boot log prints the active security posture.
 
 ## Migration plan (no breaking protocol change without one)
@@ -49,6 +50,7 @@
 4. Existing socket events and payloads are unchanged in shape; only additive fields (`reconnectToken`, `hostToken`) and new server→client events (`rate_limited`, `matchmaking_error`, `invite_room_created` — all safely ignored by old clients).
 
 ## Phase 2 limitations (deliberately out of scope)
+- **Legacy `zonke.html` snapshot:** its inline client sends no handshake auth and no `hostToken`. Quick-match, invite create/join and gameplay all still work, but *host resume* (backgrounded tab reconnecting into an invite room) is now rejected without the token — recreate the room instead. The primary client (`game.js`) is updated in this PR and unaffected; this is the documented cost of the client-first migration.
 - Telemetry **keys are unset by default** (open writes/reads behind rate limits) — enabling them is an environment change reserved for the owner.
 - Reconnect tokens are issued at match start (not on demand) and live in process memory — fine for one node; a multi-node deploy needs shared state.
 - Origin allowlist is hostname-based (no TLS client certs/mTLS); HTTP telemetry origin checks are browser-side (CORS) — server-side key auth is the real control there.
@@ -58,6 +60,6 @@
 ## Files changed in Stage 1
 - `server.js` — hardened (config block, origin/handshake middleware, static allowlist, telemetry hardening, room/token/timer engine, safe error handler).
 - `game.js` — handshake auth, reconnect/host token capture + emit, telemetry key header helper (8 surgical edits; engine untouched).
-- `test/security.test.js` — **new** (23 tests).
+- `test/security.test.js` — **new** (24 tests).
 - `test/canonical_rules.test.js` — 2 assertions reworded to test *properties* instead of Stage-0 syntax (optional-chaining form, hardcoded `45000`) that Stage 1 intentionally restructured; defaults still pinned at 45 s.
 - `docs/STAGE1_SECURITY.md` — this file; `README.md` — security section.

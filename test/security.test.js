@@ -325,6 +325,11 @@ describe('5.3 telemetry hardening', () => {
             assert.ok(!evil.headers.get('access-control-allow-origin'), 'evil origin must not receive CORS approval');
             const good = await get(port, '/api/performance/', { headers: { origin: 'http://localhost:3000' } });
             assert.equal(good.headers.get('access-control-allow-origin'), 'http://localhost:3000');
+            // Wildcard default must also apply to HTTP CORS (regression: scheme-prefixed '*.' entries).
+            const preview = await get(port, '/api/performance/', { headers: { origin: 'https://preview-42.e2b.app' } });
+            assert.equal(preview.headers.get('access-control-allow-origin'), 'https://preview-42.e2b.app');
+            const fake = await get(port, '/api/performance/', { headers: { origin: 'https://fakee2b.app' } });
+            assert.ok(!fake.headers.get('access-control-allow-origin'), 'suffix spoof must not get CORS approval');
         });
     });
 });
@@ -343,6 +348,25 @@ describe('5.1 socket.io hardening', () => {
             // No Origin header at all (tests, curl, native) remains allowed.
             const noOrigin = await connect(port);
             noOrigin.close();
+        });
+    });
+
+    test('default wildcard origins (*.e2b.app) are honoured — and only genuine suffix matches', async () => {
+        await withServer(async (port) => {
+            // Regression: scheme-prefixed wildcards in DEFAULT_ORIGINS used to
+            // never match (entry.startsWith('*.')), rejecting every Arena preview.
+            const preview = await connect(port, { extraHeaders: { origin: 'https://preview-42.e2b.app' } });
+            preview.close();
+            const nested = await connect(port, { extraHeaders: { origin: 'https://a.b.e2b.app:8443' } });
+            nested.close();
+            // Suffix attacks must still fail: no dot before e2b, and apex is not covered.
+            const fake = await connectExpectError(port, { extraHeaders: { origin: 'https://fakee2b.app' } });
+            assert.equal(fake, 'origin_not_allowed');
+            const apex = await connectExpectError(port, { extraHeaders: { origin: 'https://e2b.app' } });
+            assert.equal(apex, 'origin_not_allowed');
+            // Scheme matters: http on an https-only entry is rejected.
+            const http = await connectExpectError(port, { extraHeaders: { origin: 'http://zonke.netlify.app' } });
+            assert.equal(http, 'origin_not_allowed');
         });
     });
 
@@ -377,13 +401,16 @@ describe('5.1 socket.io hardening', () => {
     test('payloads over maxHttpBufferSize (8KB) drop the socket; server survives', async () => {
         await withServer(async (port) => {
             const s = await connect(port);
-            const dropped = new Promise((resolve) => {
-                s.once('disconnect', (reason) => resolve(reason));
-                s.once('connect_error', (e) => resolve(e.message));
+            // Watchers MUST be attached before the emit, with a hard timeout so a
+            // regression (payload accepted) fails fast instead of hanging CI.
+            const dropWatch = new Promise((resolve) => {
+                s.once('disconnect', (r) => resolve(`disconnect:${r}`));
+                s.once('connect_error', (e) => resolve(`error:${e.message}`));
+                setTimeout(() => resolve('TIMEOUT'), 4000);
             });
             s.emit('find_match', { name: 'BigBoy', pad: 'x'.repeat(20 * 1024) });
-            const reason = await dropped;
-            assert.ok(reason, 'oversized payload must disconnect the client');
+            const reason = await dropWatch;
+            assert.notEqual(reason, 'TIMEOUT', 'oversized payload must disconnect the client');
             assert.equal((await get(port, '/')).status, 200, 'server must stay up');
             // A fresh client can still connect and play matchmaking.
             const s2 = await connect(port);
@@ -583,7 +610,8 @@ describe('5.4/5.5 reconnect & invite credentials', () => {
             const joined = waitFor(challenger, 'match_found');
             const hostSawMatch = waitFor(host2, 'match_found');
             challenger.emit('join_invite_room', { roomCode: 'DUEL-7777', name: 'Challenger' });
-            await Promise.all([joined, hostSawMatch]);
+            const [cData] = await Promise.all([joined, hostSawMatch]);
+            assert.ok(cData.reconnectToken, 'invite path must also issue per-seat reconnect tokens');
             closeAll(host, attacker, host2, challenger);
         });
     });
