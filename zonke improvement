@@ -1,0 +1,501 @@
+ZONKE — NEXT DEVELOPMENT INSTRUCTIONS
+
+Project direction
+
+Zonke is being developed as both:
+
+1. A production-ready multiplayer game.
+2. A social gaming platform built around the Kasi paper-soldier game.
+
+The objective is to turn the existing Zonke project into a secure, reliable, maintainable and enjoyable gaming experience without destroying or unnecessarily rewriting existing features.
+
+Repository: https://github.com/Njwacky/zonke
+
+Primary branch: "main"
+
+---
+
+1. Your role
+
+Act as a senior full-stack game engineer, backend engineer, security engineer and QA engineer.
+
+Do not simply make changes because they appear technically convenient. Understand the existing architecture, investigate the consequences of changes, and preserve working functionality.
+
+Follow professional software engineering practices.
+
+You are responsible for:
+
+- Understanding the existing codebase.
+- Identifying technical debt and security weaknesses.
+- Implementing improvements in small, controlled stages.
+- Writing meaningful automated tests.
+- Reviewing your own changes.
+- Documenting decisions and limitations.
+- Maintaining backward compatibility where possible.
+
+Do not invent completed tests or claim that something works without evidence.
+
+2. Mandatory Git workflow
+
+Every development stage must follow:
+
+"Feature branch → Implementation → Testing → Pull request → Review → Approval → Merge"
+
+Rules:
+
+1. Never develop directly on "main".
+2. Always fetch the latest repository state before creating a branch.
+3. Create a dedicated feature branch for each stage.
+4. Keep each branch focused on one engineering objective.
+5. Never overwrite existing functionality without understanding its purpose.
+6. Run the relevant tests before opening a PR.
+7. Review the complete diff before submitting.
+8. Include test results and known limitations in the PR description.
+9. Fix review findings before requesting approval.
+10. Never merge without explicit owner approval.
+11. Never deploy to production without explicit owner approval.
+
+If GitHub permissions prevent branch creation or PR creation, stop and report the exact problem. Do not work around permissions by committing directly to "main".
+
+3. Production safety rules
+
+These restrictions are mandatory:
+
+- Do not change production environment variables.
+- Do not expose, replace or regenerate secrets.
+- Do not execute SQL against the live Supabase database.
+- Do not modify production database policies without approval.
+- Do not change live hosting or deployment configuration without approval.
+- Do not delete existing features or user data.
+- Do not remove files without establishing whether they are still used.
+- Do not introduce breaking API or Socket.IO protocol changes without a migration plan.
+- Do not claim production readiness based only on successful syntax checks.
+
+All database changes must first be proposed as reviewed migration files.
+
+Use test environments wherever possible.
+
+4. First assignment: Stage 0 — Baseline and quality gates
+
+Do not immediately start rewriting the application.
+
+First, understand the complete existing project.
+
+Inspect:
+
+- "game.js"
+- "server.js"
+- "index.html"
+- "zonke.html"
+- "style.css"
+- "RULES.md"
+- "README.md"
+- "supabase_setup.sql"
+- "sw.js"
+- "package.json"
+- "package-lock.json"
+- "capacitor.config.json"
+- "manifest.json"
+
+Investigate the relationship between "index.html" and "zonke.html". Establish which file is the actual application entry point and whether both are still required.
+
+4.1 Document existing functionality
+
+Create an inventory of the existing features.
+
+At minimum, investigate:
+
+- Pass & Play.
+- Sipho AI opponent.
+- Online matchmaking.
+- Private invite rooms.
+- Player reconnection.
+- Flick physics.
+- Power gears.
+- Dynamic wind.
+- Bonus envelope.
+- Sticky and foil ammunition.
+- Soldier construction.
+- Soldier elimination.
+- Player profiles.
+- XP and coins.
+- Ranks and leaderboards.
+- Friends.
+- Themes and outfits.
+- Weapons and loadouts.
+- Audio and haptics.
+- PWA offline functionality.
+- Capacitor mobile support.
+- Telemetry and monitoring.
+
+For each feature, record:
+
+1. Where it is implemented.
+2. How it works.
+3. Its dependencies.
+4. Whether it has automated tests.
+5. Whether it has known problems.
+6. Whether it should be preserved, improved or redesigned.
+
+Do not assume a feature is unused simply because it looks old.
+
+4.2 Establish canonical game rules
+
+Investigate the discrepancy between the existing game engine and documentation.
+
+The current engine uses:
+
+- 9 rows.
+- 5 soldiers for the majority victory condition.
+
+Some documentation still describes 12 rows and first-to-7 victory.
+
+Determine the actual intended rules by inspecting the complete game implementation.
+
+Create one canonical rules definition and update documentation and comments accordingly.
+
+Do not change the actual gameplay rules without approval.
+
+4.3 Introduce automated quality checks
+
+Set up a proper testing foundation.
+
+Include:
+
+- JavaScript syntax checks.
+- Unit testing.
+- Game-rule testing.
+- Server event validation tests.
+- Multiplayer integration tests.
+- Dependency security checks.
+- GitHub Actions CI.
+
+Tests must be runnable locally and automatically through GitHub Actions.
+
+Do not confuse a successful syntax check with a successful gameplay test.
+
+4.4 Stage 0 completion requirements
+
+Stage 0 is complete only when:
+
+- The application starts successfully.
+- Existing features have been inventoried.
+- Canonical game rules are documented.
+- The entry-point structure is understood.
+- Automated tests are established.
+- CI runs successfully.
+- No existing working feature has been unnecessarily removed.
+- A pull request is ready for review.
+
+5. Stage 1 — Security hardening
+
+After Stage 0 has been reviewed and approved, begin security hardening.
+
+Investigate and address the following issues.
+
+5.1 Socket.IO security
+
+- Replace unrestricted wildcard origins with an explicit origin allowlist.
+- Validate connection identity.
+- Validate every incoming event.
+- Add event payload size restrictions.
+- Add per-event rate limits.
+- Reject malformed requests.
+- Prevent duplicate and replayed actions.
+- Ensure players can only act within their own matches.
+
+5.2 Static file security
+
+Investigate the use of:
+
+"express.static('.')"
+
+Avoid exposing the entire project directory.
+
+Introduce an explicit public asset directory or carefully controlled static file allowlist.
+
+Ensure that private files, configuration, SQL files, documentation and server implementation files are not unnecessarily exposed.
+
+5.3 Telemetry security
+
+Review:
+
+- "/telemetry"
+- "/api/heartbeat/"
+- "/api/events/"
+- "/api/performance/"
+- "/api/app-detail/"
+
+Determine which endpoints should be public and which should require authentication.
+
+Implement:
+
+- Request validation.
+- Rate limiting.
+- Input size restrictions.
+- Appropriate authentication.
+- Private dashboard access.
+- Safe error responses.
+
+Preserve useful operational monitoring.
+
+5.4 Reconnection security
+
+Replace client-trusted player roles with server-issued credentials.
+
+Requirements:
+
+- Each match seat must have its own identity.
+- Reconnection credentials must be unpredictable.
+- Credentials must expire.
+- Credentials must be tied to the correct match and player seat.
+- A player must not be able to take over another player's seat.
+- Reconnection must not clear another player's disconnect timer.
+
+5.5 Stage 1 completion requirements
+
+- Security tests pass.
+- Unauthorized connections are rejected.
+- Invalid events are rejected.
+- Telemetry access is controlled.
+- Private repository files are not publicly served.
+- Existing offline gameplay remains functional.
+- PR is opened for review.
+
+6. Stage 2 — Server-authoritative game engine
+
+This is one of the most important stages.
+
+Currently, the server accepts a landing result reported by the client.
+
+That is not sufficient for a competitive multiplayer game.
+
+The server must independently validate the game outcome.
+
+Implement a deterministic game-rules engine.
+
+The server should control:
+
+- Current match state.
+- Current player turn.
+- Legal shot parameters.
+- Shot inventory.
+- Soldier construction.
+- Soldier elimination.
+- Bonus interactions.
+- Wind state.
+- Special ammunition.
+- Victory conditions.
+- Match results.
+
+The client may predict and animate the shot, but the server must determine the official result.
+
+Write tests for:
+
+- Invalid landing reports.
+- Impossible shots.
+- Out-of-turn actions.
+- Duplicate actions.
+- Replayed actions.
+- Invalid ammunition.
+- Illegal soldier transitions.
+- Incorrect victory claims.
+
+Preserve the existing flick physics and user experience.
+
+Do not replace the physics engine without first creating regression tests.
+
+7. Stage 3 — Multiplayer reliability
+
+Improve the complete multiplayer lifecycle.
+
+Implement:
+
+- Reliable matchmaking.
+- Queue cancellation.
+- Duplicate queue prevention.
+- Secure private invitations.
+- Invite expiration.
+- Match state management.
+- Disconnect handling.
+- Reconnection.
+- Match cancellation.
+- Forfeit handling.
+- Rematch support.
+- Room cleanup.
+
+Test simultaneous matchmaking requests and network failures.
+
+Do not assume that an in-memory implementation is suitable for multiple server instances.
+
+Document the infrastructure requirements before introducing Redis or another persistence system.
+
+8. Stage 4 — Database and player identity
+
+Investigate the current Supabase integration.
+
+Tables currently referenced by the application include:
+
+- "profiles"
+- "friends"
+- "zonkedb"
+
+Before making changes, inspect the actual database schema, constraints, grants and RLS policies in a safe environment.
+
+Do not execute migrations against production without approval.
+
+Introduce Supabase Auth and stable player IDs.
+
+Separate:
+
+- Public player information.
+- Private account information.
+- Player settings.
+- Friends and relationships.
+- Match history.
+- Progression and rewards.
+
+Important:
+
+The browser must not be trusted to award XP, coins, wins or competitive rank.
+
+Ranked progression must be calculated and recorded by trusted server-side operations.
+
+Never place a Supabase service-role key in browser code.
+
+9. Stage 5 — Social gaming features
+
+Once identity and authorization are secure, improve the social experience.
+
+Prioritize:
+
+1. Player profiles.
+2. Friend requests.
+3. Accepting and rejecting requests.
+4. Removing friends.
+5. Online presence.
+6. Private match invitations.
+7. Recent opponents.
+8. Player blocking.
+9. Player reporting.
+10. Privacy controls.
+
+Public chat and voice chat should not be introduced until moderation, abuse reporting and data-retention requirements are properly addressed.
+
+10. Stage 6 — Mobile and PWA improvements
+
+Preserve the existing PWA and Capacitor implementation.
+
+Investigate:
+
+- Offline game startup.
+- Service-worker updates.
+- Cache invalidation.
+- Network reconnection.
+- Android WebView compatibility.
+- Touch controls.
+- Screen orientation.
+- Sound permissions.
+- Haptics.
+- Mobile performance.
+- Background and foreground transitions.
+
+Test actual mobile behavior rather than relying only on desktop browser testing.
+
+11. Stage 7 — Production readiness
+
+Before public release, prepare:
+
+- Security testing.
+- Load testing.
+- Database backup strategy.
+- Monitoring and alerts.
+- Structured logging.
+- Error tracking.
+- Health checks.
+- Deployment documentation.
+- Rollback procedures.
+- Recovery procedures.
+- Privacy and data-handling documentation.
+
+The final release must be evidence-based.
+
+Do not label the application production-ready merely because it runs without errors.
+
+12. Engineering standards
+
+Follow these principles throughout development:
+
+Code quality
+
+- Use clear function and variable names.
+- Avoid unnecessary duplication.
+- Separate business logic from UI logic.
+- Keep modules focused.
+- Handle asynchronous failures.
+- Validate data at trust boundaries.
+- Document complex decisions.
+- Avoid unnecessary dependencies.
+
+Security
+
+- Treat every client request as untrusted.
+- Enforce authorization on the server.
+- Use least-privilege database policies.
+- Never expose secrets.
+- Protect against replay and abuse.
+- Keep sensitive operational data private.
+
+Testing
+
+- Test normal behavior.
+- Test invalid behavior.
+- Test edge cases.
+- Test network failures.
+- Test reconnect scenarios.
+- Test authorization boundaries.
+- Test compatibility with existing features.
+
+Development discipline
+
+- Make small changes.
+- Explain why each change is necessary.
+- Show which files were changed.
+- Report test results honestly.
+- Document known limitations.
+- Never silently remove functionality.
+
+13. Immediate execution instructions
+
+Start with Stage 0 only.
+
+Your first response must contain:
+
+1. The current repository commit.
+2. A complete feature inventory.
+3. The application entry-point analysis.
+4. The discrepancies found in the game rules.
+5. The current testing and CI situation.
+6. A list of identified risks.
+7. The proposed Stage 0 implementation tasks.
+8. The feature branch you intend to create.
+9. The expected files to change.
+10. The tests you intend to run.
+
+Then proceed with Stage 0 on a dedicated feature branch if GitHub permissions allow it.
+
+Do not begin Stage 1 until Stage 0 has passed review and received approval.
+
+Do not merge any PR without explicit approval.
+
+---
+
+Final objective
+
+Build Zonke into a complete gaming platform while protecting the original game experience.
+
+The objective is not simply to add more features.
+
+The objective is to make every existing and future feature dependable, secure, maintainable and enjoyable.
+
+Preserve what works. Fix what is broken. Test what changes. Secure what matters. Never sacrifice the product's integrity for speed.
