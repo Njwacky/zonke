@@ -1,0 +1,13 @@
+{
+  "name": "nandi-layout-checks",
+  "private": true,
+  "description": "Optional browser regression checks for the standalone gift site",
+  "scripts": {
+    "test": "node layout.cjs",
+    "install-browser": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.1",
+    "playwright": "1.65.1"
+  }
+}
